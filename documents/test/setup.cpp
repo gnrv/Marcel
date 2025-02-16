@@ -379,7 +379,17 @@ struct RendererMarkersLine : RendererBase {
 static ImVec2 MARKER_FILL_RIGHT[3]    = {ImVec2(0,0), ImVec2(-1.5, SQRT_3_2), ImVec2(-1.5, -SQRT_3_2)};
 static ImVec2 MARKER_LINE_RIGHT[6]    = {ImVec2(0,0),  ImVec2(-1.5, SQRT_3_2), ImVec2(-1.5, SQRT_3_2), ImVec2(-1.5, -SQRT_3_2), ImVec2(-1.5, -SQRT_3_2), ImVec2(0,0) };
 
-static void RenderVector(ImVec2 start, ImVec2 end, ImPlotItemFlags flags) {
+static void RenderLine(ImVec2 start, ImVec2 end) {
+    const ImPlotNextItemData& s = GetItemData();
+    if (!s.RenderLine)
+        return;
+
+    const ImU32 col_line = ImGui::GetColorU32(s.Colors[ImPlotCol_Line]);
+    VectorGetter getter1(start, end);
+    RenderPrimitives1<RendererLineSegments1>(getter1,col_line,s.LineWeight);
+}
+
+static void RenderVector(ImVec2 start, ImVec2 end) {
     const ImPlotNextItemData& s = GetItemData();
     if (!s.RenderLine)
         return;
@@ -491,7 +501,7 @@ void Vector(const char* label_id, ImVec2 start, ImVec2 end, ImPlotItemFlags flag
         const ImGuiID id = ImGui::GetID(label_id);
         ImVector *vector = g_Vectors.GetOrAddByKey(id);
         double s = BeginFade(vector);
-        RenderVector(start, end, flags);
+        RenderVector(start, end);
         if (!ImHasFlag(flags, ImPlotItemFlags_NoLabel)) {
             ImVec2 pos = (end + start) / 2;
             ImVec4 col = ImPlot::GetStyleColorVec4(ImPlotCol_InlayText);
@@ -532,10 +542,15 @@ void Bivector(const char* label_id, ImVec2 start, ImVec2 mid, ImVec2 end, ImPlot
         const ImU32 col_line = ImGui::GetColorU32(col4);
         draw_list.AddConvexPolyFilled(points, 4, col_line);
 
-        RenderVector(start, mid, flags);
-        RenderVector(mid, end, flags);
-        RenderVector(end, end - a, flags);
-        RenderVector(end - a, start, flags);
+#if 0
+        RenderVector(start, mid);
+        RenderVector(mid, end);
+        RenderVector(end, end - a);
+        RenderVector(end - a, start);
+#else
+        // Render a polyline around the perimeter of the bivector
+        draw_list.AddPolyline(points, 4, ImGui::GetColorU32(data.Colors[ImPlotCol_Line]), ImDrawFlags_Closed, data.LineWeight);
+#endif
 
         if (!ImHasFlag(flags, ImPlotItemFlags_NoLabel)) {
             ImVec2 pos = (end + start) / 2;
