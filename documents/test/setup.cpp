@@ -375,9 +375,10 @@ struct RendererMarkersLine : RendererBase {
 };
 
 #define SQRT_3_2 0.86602540378f
+#define INV_SQRT_3 0.57735026919f
 
-static ImVec2 MARKER_FILL_RIGHT[3]    = {ImVec2(0,0), ImVec2(-1.5, SQRT_3_2), ImVec2(-1.5, -SQRT_3_2)};
-static ImVec2 MARKER_LINE_RIGHT[6]    = {ImVec2(0,0),  ImVec2(-1.5, SQRT_3_2), ImVec2(-1.5, SQRT_3_2), ImVec2(-1.5, -SQRT_3_2), ImVec2(-1.5, -SQRT_3_2), ImVec2(0,0) };
+static ImVec2 MARKER_FILL_RIGHT[3]    = {ImVec2(0,0), ImVec2(-3, INV_SQRT_3), ImVec2(-3, -INV_SQRT_3)};
+static ImVec2 MARKER_LINE_RIGHT[6]    = {ImVec2(0,0),  ImVec2(-3, INV_SQRT_3), ImVec2(-3, INV_SQRT_3), ImVec2(-3, -INV_SQRT_3), ImVec2(-3, -INV_SQRT_3), ImVec2(0,0) };
 
 static void RenderLine(ImVec2 start, ImVec2 end) {
     const ImPlotNextItemData& s = GetItemData();
@@ -393,16 +394,6 @@ static void RenderVector(ImVec2 start, ImVec2 end) {
     const ImPlotNextItemData& s = GetItemData();
     if (!s.RenderLine)
         return;
-
-    static bool initialized = false;
-    if (!initialized) {
-        initialized = true;
-        for (int i = 0; i < 6; ++i) {
-            if (i < 3)
-                MARKER_FILL_RIGHT[i].x *= 2;
-            MARKER_LINE_RIGHT[i].x *= 2;
-        }
-    }
 
     Transformer2 transformer;
     ImVec2 start_screen = transformer(start.x, start.y);
@@ -533,7 +524,12 @@ void Bivector(const char* label_id, ImVec2 start, ImVec2 mid, ImVec2 end, ImPlot
         // We need to add the points in a clockwise order, according to ImGui docs.
         // Note that the notion of clockwise is reversed in the plot because the y-axis is flipped.
         float orientation = a.x * (end.y - mid.y) + a.y * (mid.x - end.x);
-        ImVec2 points[4] = {start_screen, mid_screen, end_screen, start_screen + end_screen - mid_screen};
+        ImVec2 points[4] = {
+            start_screen,
+            mid_screen,
+            end_screen,
+            end_screen + (start_screen - mid_screen)
+        };
         if (orientation > 0)
             std::swap(points[1], points[3]);
         const ImPlotNextItemData& data = GetItemData();
@@ -550,6 +546,29 @@ void Bivector(const char* label_id, ImVec2 start, ImVec2 mid, ImVec2 end, ImPlot
 #else
         // Render a polyline around the perimeter of the bivector
         draw_list.AddPolyline(points, 4, ImGui::GetColorU32(data.Colors[ImPlotCol_Line]), ImDrawFlags_Closed, data.LineWeight);
+
+        // Compute the four midpoints of each side of the parallelogram
+        ImVec2 midpoints[4] = {
+            (start_screen + mid_screen) / 2,
+            (mid_screen + end_screen) / 2,
+            (start_screen     + end_screen * 2 - mid_screen) / 2,
+            (start_screen * 2 + end_screen     - mid_screen) / 2
+        };
+        if (orientation > 0)
+            std::swap(midpoints[1], midpoints[3]);
+
+        // From each midpoint, we draw an arrow pointing in the tangent direction
+        for (int i = 0; i < 4; ++i) {
+            ImVec2 tangent = midpoints[i] - points[i];
+            tangent = tangent / sqrt(tangent.x * tangent.x + tangent.y * tangent.y);
+            ImVec2 normal = ImVec2(tangent.y, -tangent.x);
+            ImVec2 arrow[3] = {
+                midpoints[i] - tangent * 4 + normal * 8 * SQRT_3_2,
+                midpoints[i] + tangent * 4,
+                midpoints[i] - tangent * 4 - normal * 8 * SQRT_3_2
+            };
+            draw_list.AddPolyline(arrow, 3, ImGui::GetColorU32(data.Colors[ImPlotCol_Line]), false, data.LineWeight);
+        }
 #endif
 
         if (!ImHasFlag(flags, ImPlotItemFlags_NoLabel)) {
