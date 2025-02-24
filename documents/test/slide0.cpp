@@ -36,7 +36,8 @@ if (ImPlot::BeginPlot("hejz")) {
         }
         xs[0] = 6; xs[1] = 9; ys[0] = 10; ys[1] = 11;
         // open markers
-        ImPlot::Bivector("Bivector", ImVec2(6, 4), ImVec2(8, 4), ImVec2(9, 8), ImPlotItemFlags_NoLegend);
+        ImPlot::Bivector("Bivector", ImVec2(6, 7), ImVec2(8, 7), ImVec2(9, 11), ImPlotItemFlags_NoLegend);
+        ImPlot::Bivector("A", ImVec2(7, 4), vec_y, ImPlotItemFlags_NoLegend);
         ImPlot::PopStyleVar(2);
 
         ImPlot::PlotText("Vectors", 2.5f, 6.0f);

@@ -102,11 +102,11 @@ int main(int argc, char **argv) {
     //     exit(1);
     // }
     // Add the imgui source directory to the include path
+    interp.AddIncludePath("../external/imgui/imga");
     interp.AddIncludePath("../external/imgui/imgui");
     interp.AddIncludePath("../external/imgui/implot");
     interp.AddIncludePath("../external/imgui/implot3d");
     interp.AddIncludePath("../external/microtex/imlatex");
-    interp.AddIncludePath("../src/imga");
     // Pre-include it
     std::vector<std::string> headers = {
         "imgui.h",
