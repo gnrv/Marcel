@@ -590,8 +590,8 @@ void Bivector(const char* label_id, ImPlotPoint center, double area, ImPlotItemF
         ImVec2 y_axis_screen = Transformer2()(y_axis);
         ImVec2 center_screen = Transformer2()(center.x, center.y);
         // Here, we assume that the Transformer2 will not have skew (i.e. the x and y axes are still orthogonal)
-        // The ellipse has area pi * a * b, and a circle with the same area has radius sqrt(a * b / pi)
-        float radius_screen = sqrt(fabsf((x_axis_screen - center_screen).x * (y_axis_screen - center_screen).y) / M_PI);
+        // The ellipse has area pi * a * b, and a circle with the same area pi * r^2 has radius sqrt(a * b)
+        float radius_screen = sqrt(fabsf((x_axis_screen - center_screen).x * (y_axis_screen - center_screen).y));
         auto bivector = g_Bivectors.GetOrAddByKey(ImGui::GetID(label_id));
         double s = BeginFade(bivector);
         ImDrawList &draw_list = *GetPlotDrawList();
