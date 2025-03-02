@@ -8,8 +8,11 @@ static float line_weight = 2;
 ImGui::SliderFloat("Vector Y", &vec_y, 0, 10);
 ImGui::SliderFloat("Size", &mk_size, 0, 10);
 ImGui::SliderFloat("Vector Weight", &line_weight, 0, 10);
-if (ImPlot::BeginPlot("hejz")) {
-        ImPlot::SetupAxesLimits(0, 10, 0, 12);
+float dim = std::min(slide_size.x, slide_size.y);
+ImVec2 plot_size = ImVec2(dim, dim) * 0.8f;
+ImGui::SetCursorPosX((slide_size.x - plot_size.x)/2);
+if (ImPlot::BeginPlot("Hej", plot_size)) {
+        ImPlot::SetupAxesLimits(0, 12, 0, 12);
 
         ImS8 xs[4] = {1,4,5,6};
         ImS8 ys[4] = {10,11,7,8};

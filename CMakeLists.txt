@@ -78,12 +78,14 @@ if(USE_CLING)
 endif()
 
 # Sources of program
-include_directories(src src/slides)
+include_directories(src src/editor src/slides external/ImGuiColorTextEdit)
 file(GLOB source_list RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     src/core/*.cpp
+    src/editor/*.cpp
     src/search/*.cpp
     src/slides/*.cpp
     src/system/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/ImGuiColorTextEdit/TextEditor.cpp
 )
 
 # Making a library without the main, for the tests and the program
@@ -102,13 +104,11 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/documents)
 
 add_executable(${PROJECT_NAME}
 src/main.cpp
-${CMAKE_CURRENT_SOURCE_DIR}/external/ImGuiColorTextEdit/TextEditor.cpp
 ${APP_ICON_RESOURCE_WINDOWS}
 )
 target_link_libraries(${PROJECT_NAME} PUBLIC ${LIBS})
 
 # Include directories
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external/ImGuiColorTextEdit)
 if(USE_CLING)
     target_include_directories(${PROJECT_NAME} PUBLIC ${LLVM_INCLUDE_DIRS})
     target_include_directories(${PROJECT_NAME} PUBLIC ${CLANG_INCLUDE_DIRS})

@@ -10,6 +10,7 @@
 
 #include "IconsMaterialDesignIcons.h"
 
+#include "Editor.h"
 #include "Presentation.h"
 #include "Slide.h"
 #include "TextEditor.h"
@@ -205,7 +206,7 @@ int main(int argc, char **argv) {
     ImPlot::CreateContext();
     ImPlot3D::CreateContext();
     ImGui::InitLatex();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGuiIO& io = ImGui::GetIO();
     // NavEnableKeyboard messes with TextEditor
     //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
     //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
@@ -264,11 +265,8 @@ int main(int argc, char **argv) {
     //ImVec4 clear_color = ImVec4(0.f, 0.f, 0.f, 1.00f);
 
     Presentation presentation("../documents/test");
-    std::map<std::string, TextEditor> editors;
-    editors["setup"].SetText(presentation.setup.text());
-    for (size_t i = 0; i < presentation.slides.size(); i++) {
-        editors[fmt::format("slide{}", i)].SetText(presentation.slides[i].text());
-    }
+    Editor editor(presentation);
+    editor.SetMonoFont(fira_mono);
 
     auto ToggleFullscreen = [window_size, window](){
             static int w = window_size.x, h = window_size.y;
@@ -328,8 +326,6 @@ int main(int argc, char **argv) {
 #endif
 
     // Main loop
-    std::string activate_tab = "slide0";
-    std::string active_tab = "slide0";
     std::string exception_what;
     while (!glfwWindowShouldClose(window)) {
         // Poll and handle events (inputs, window resize, etc.)
@@ -339,16 +335,17 @@ int main(int argc, char **argv) {
         // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
         glfwPollEvents();
 
-        // If GLFW reports that key F11 was pressed, toggle fullscreen
-        static bool toggle_fullscreen = false;
-        if (!toggle_fullscreen && glfwGetKey(window, GLFW_KEY_F11) == GLFW_PRESS) {
-            toggle_fullscreen = true;
-
+        if (ImGui::IsKeyPressed(ImGuiKey_F11, false /* repeat */)) {
             ToggleFullscreen();
         }
 
-        if (glfwGetKey(window, GLFW_KEY_F11) == GLFW_RELEASE) {
-            toggle_fullscreen = false;
+        static bool presentation_mode = false;
+        static int current_slide = 0;
+        bool current_slide_changed = false;
+        if (ImGui::IsKeyPressed(ImGuiKey_F5)) {
+            presentation_mode = io.KeyShift ? false : true;
+            current_slide = 0;
+            current_slide_changed = true;
         }
 
         // Start the Dear ImGui frame
@@ -366,163 +363,17 @@ int main(int argc, char **argv) {
                     ImGuiWindowFlags_NoSavedSettings;
 
         // 1. Code window
-        TextEditor &active_editor = editors[active_tab];
-        ImVec2 code_window_size{ width/2, height };
-        ImGui::SetNextWindowSize(code_window_size);
-        ImGui::SetNextWindowPos(ImVec2(0, 0));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        if (ImGui::Begin("Code", 0, flags | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar)) {
-            ImGui::PopStyleVar();
-            if (ImGui::BeginMenuBar()) {
-                if (ImGui::BeginMenu("File")) {
-                    if (ImGui::MenuItem("Save")) {
-                        try {
-                            presentation.getSourceFile(active_tab).save();
-                        } catch (std::exception& e) {
-                            exception_what = e.what();
-                            ImGui::OpenPopup("Exception");
-                        }
-                    }
-                    if (ImGui::MenuItem("Quit", "Alt-F4"))
-                        break;
-                    ImGui::EndMenu();
-                }
-                if (ImGui::BeginMenu("Edit")) {
-                    bool ro = active_editor.IsReadOnly();
-                    if (ImGui::MenuItem("Read-only mode", nullptr, &ro))
-                        active_editor.SetReadOnly(ro);
-                    ImGui::Separator();
-
-                    if (ImGui::MenuItem("Undo", "Ctrl-Z", nullptr, !ro && active_editor.CanUndo()))
-                        active_editor.Undo();
-                    if (ImGui::MenuItem("Redo", "Ctrl-Y", nullptr, !ro && active_editor.CanRedo()))
-                        active_editor.Redo();
-
-                    ImGui::Separator();
-
-                    if (ImGui::MenuItem("Copy", "Ctrl-C", nullptr, active_editor.HasSelection()))
-                        active_editor.Copy();
-                    if (ImGui::MenuItem("Cut", "Ctrl-X", nullptr, !ro && active_editor.HasSelection()))
-                        active_editor.Cut();
-                    if (ImGui::MenuItem("Delete", "Del", nullptr, !ro && active_editor.HasSelection()))
-                        active_editor.Delete();
-                    if (ImGui::MenuItem("Paste", "Ctrl-V", nullptr, !ro && ImGui::GetClipboardText() != nullptr))
-                        active_editor.Paste();
-
-                    ImGui::Separator();
-
-                    if (ImGui::MenuItem("Select all", nullptr, nullptr))
-                        active_editor.SetSelection(TextEditor::Coordinates(), TextEditor::Coordinates(active_editor.GetTotalLines(), 0));
-
-                    ImGui::EndMenu();
-                }
-
-                if (ImGui::BeginMenu("View")) {
-                    if (ImGui::MenuItem("Full Screen", "F11"))
-                        ToggleFullscreen();
-                    ImGui::EndMenu();
-                }
-                ImGui::EndMenuBar();
-            }
+        if (!presentation_mode) {
+            ImVec2 code_window_size{ width/2, height };
+            ImGui::SetNextWindowSize(code_window_size);
+            ImGui::SetNextWindowPos(ImVec2(0, 0));
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-
-            TextEditor *rendered_editor = nullptr;
-            if (ImGui::BeginTabBar("MyTabBar")) {
-                std::string label_and_id = presentation.setup.path.filename().string() + "###setup";
-                ImGuiTabItemFlags flags = 0;
-                if (activate_tab == "setup") {
-                    // The tab will not render it contents until the next lap of the loop.
-                    flags |= ImGuiTabItemFlags_SetSelected;
-                }
-                if (presentation.setup.dirty)
-                    flags |= ImGuiTabItemFlags_UnsavedDocument;
-                if (ImGui::BeginTabItem(label_and_id.c_str(), nullptr, flags)) {
-                    active_tab = "setup";
-                    if (activate_tab == active_tab)
-                        activate_tab.clear();
-                    ImGui::PushFont(fira_mono);
-                    auto &editor = editors["setup"];
-                    ImVec2 editor_size = ImGui::GetContentRegionAvail();
-                    editor_size.y -= ImGui::GetTextLineHeightWithSpacing();
-                    editor.SetErrorMarkers(presentation.setup.error_markers);
-                    editor.Render("TextEditor", editor_size);
-                    rendered_editor = &editor;
-                    if (editor.IsTextChanged())
-                        try {
-                            presentation.setup.setText(editor.GetText());
-                        } catch (std::exception& e) {
-                            exception_what = e.what();
-                            ImGui::OpenPopup("Exception");
-                        }
-
-                    ImGui::PopFont();
-                    ImGui::EndTabItem();
-                }
-                for (auto &slide : presentation.slides) {
-                    int i = presentation.indexOf(slide);
-                    std::string slide_id = fmt::format("slide{}", i);
-                    std::string label_and_id = slide.path.filename().string() + "###" + slide_id;
-                    ImGuiTabItemFlags flags = 0;
-                    if (activate_tab == slide_id) {
-                        flags |= ImGuiTabItemFlags_SetSelected;
-                    }
-                    if (slide.dirty)
-                        flags |= ImGuiTabItemFlags_UnsavedDocument;
-                    if (ImGui::BeginTabItem(label_and_id.c_str(), nullptr, flags)) {
-                        active_tab = slide_id;
-                        if (activate_tab == active_tab)
-                            activate_tab.clear();
-                        ImGui::PushFont(fira_mono);
-                        auto &editor = editors[slide_id];
-                        ImVec2 editor_size = ImGui::GetContentRegionAvail();
-                        editor_size.y -= ImGui::GetTextLineHeightWithSpacing();
-                        editor.SetErrorMarkers(slide.error_markers);
-                        editor.Render("TextEditor", editor_size);
-                        rendered_editor = &editor;
-                        if (editor.IsTextChanged())
-                            try {
-                                slide.setText(editor.GetText());
-                            } catch (std::exception& e) {
-                                exception_what = e.what();
-                                ImGui::OpenPopup("Exception");
-                            }
-
-                        ImGui::PopFont();
-                        ImGui::EndTabItem();
-                    }
-                }
-                ImGui::EndTabBar();
-            }
-            auto cpos = rendered_editor ? rendered_editor->GetCursorPosition() : TextEditor::Coordinates();
-            ImGui::Text("%6d/%-6d %6d lines  | %s | %s", cpos.mLine + 1, cpos.mColumn + 1,
-                rendered_editor ? rendered_editor->GetTotalLines() : 0,
-                rendered_editor ? (rendered_editor->IsOverwrite() ? "Ovr" : "Ins") : "---",
-                rendered_editor ? (rendered_editor->CanUndo() ? "*" : " ") : "-");
-
-            // TextEditor actions
-            auto shift = io.KeyShift;
-            auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
-            auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
-
-            if (ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_S)) {
-                try {
-                    presentation.getSourceFile(active_tab).save();
-                } catch (std::exception& e) {
-                    exception_what = e.what();
-                    ImGui::OpenPopup("Exception");
-                }
-            }
-
-            // TextEditor dialogs
-            if (ImGui::BeginPopupModal("Save Failed", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-                ImGui::Text("%s", exception_what.c_str());
-                if (ImGui::Button("OK"))
-                    ImGui::CloseCurrentPopup();
-                ImGui::EndPopup();
-            }
-        } // "Code" window
-        ImGui::End();
-        ImGui::PopStyleVar();
+            if (ImGui::Begin("Code", 0, flags | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar)) {
+                editor.Render(exception_what);
+            } // "Code" window
+            ImGui::End();
+            ImGui::PopStyleVar();
+        }
 
 #ifdef USE_CLING
         SourceFile &setup = presentation.setup;
@@ -549,8 +400,9 @@ int main(int argc, char **argv) {
 #endif
 
         // 2. Presentation window
-        ImGui::SetNextWindowSize(ImVec2(width/2, height));
-        ImGui::SetNextWindowPos(ImVec2(width/2, 0));
+        float presentation_width = presentation_mode ? width : width/2;
+        ImGui::SetNextWindowSize(ImVec2(presentation_width, height));
+        ImGui::SetNextWindowPos(ImVec2(presentation_mode ? 0 : presentation_width, 0));
         // Get rid of horizontal padding
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -565,117 +417,138 @@ int main(int argc, char **argv) {
         flags |= ImGuiWindowFlags_NoScrollbar;
         // Let the presentation area contain 10 placeholder slides
         // of aspect ratio 16:10
-        ImGui::Begin("Presentation", 0, flags);
-
         // Slides are designed for 1080p, 16:10 aspect ratio
         // TODO: Once ImGui::SetScale is better implemented across imgui and the glfw backend, we can
         //       use a fixed slide_size of 1728x1080 and use ImGui::PushScale() to accomplish this.
-        ImVec2 slide_size{ width/2, width/2*10/16 };
+        ImVec2 slide_size{ presentation_width, presentation_width*10/16 };
         float slide_scale = slide_size.y / 1080.f;
         // Watch out, my PushScale implementation multiplies onto the current DPI scale
         // so we need to divide by that here.
         slide_scale /= dpi_scale;
-
-        // Before all the slides, the "setup" placeholder
-        // Calculate the height of one row of ImGui::Text
         float text_height = ImGui::GetTextLineHeightWithSpacing();
-        ImGui::BeginChild("Setup", ImVec2(slide_size.x, slide_size.y/2 - text_height), false);
-        ImGui::EndChild();
-        for (int i = 0; i < 10; i++) {
-            bool animate = false;
-            ImGui::PushID(i);
-            ImGui::Text("Slide %d", i);
-            ImGui::SameLine();
-            ImGui::SetCursorPosX(slide_size.x - ImGui::GetStyle().FramePadding.x * 2 -
-                                 ImGui::CalcTextSize(ICON_MDI_REFRESH).x -
-                                 ImGui::CalcTextSize(ICON_MDI_PENCIL).x);
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-            std::string slide_id = fmt::format("slide{}", i);
-            if (ImGui::Button(ICON_MDI_PENCIL))
-                activate_tab = slide_id;
-            ImGui::SameLine();
-            if (ImGui::Button(ICON_MDI_REFRESH))
-                animate = true;
-            ImGui::PopStyleColor(1);
+        float setup_spacer_height = slide_size.y/2 - text_height;
 
-            auto top_left = ImGui::GetCursorScreenPos();
-            ImGui::BeginChild("Slide", slide_size, false);
-            ImGui::BeginAnimated(animate);
-            ImGui::PushFont(fira_sans_big);
-            ImGui::PushScale(slide_scale);
+        if (ImGui::Begin("Presentation", 0, flags)) {
+            if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+                if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
+                    current_slide++;
+                    if (current_slide >= (int)presentation.slides.size())
+                        current_slide = presentation.slides.size() - 1;
+                    current_slide_changed = true;
+                }
 
-            // The problem here is that the drawlist uses window coordinates.
-            // We need to convert the coordinates to window coordinates.
-            // We can do this by using the cursor position.
-            ImGui::GetWindowDrawList()->AddRect(top_left, top_left + slide_size, IM_COL32(255, 255, 255, 127));
-            SourceFile &slide_src = presentation.slides[i];
-#ifdef USE_CLING
-            if (!slide_src.validated) {
-                try {
-                    cling::InputValidator validator;
-                    auto result = validator.validate(slide_src.text());
-                    slide_src.setValidated(result == cling::InputValidator::kComplete);
-                } catch (std::exception& e) {
-                    exception_what = e.what();
-                    ImGui::OpenPopup("Exception");
+                if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
+                    current_slide--;
+                    if (current_slide < 0)
+                        current_slide = 0;
+                    current_slide_changed = true;
                 }
             }
 
-            if (slide_src.validated && !slide_src.compiled && !slide_src.syntax_error) {
-                slide_src.error_markers.clear();
-                CaptureStderr cap([&](const char* buf, size_t szbuf) {
-                    extractMarkers(slide_src, buf, szbuf, -1);
-                });
+            if (presentation_mode || current_slide_changed) {
+                ImGui::SetScrollY((presentation_mode ? setup_spacer_height : 0) + text_height + current_slide * (slide_size.y + 2*text_height));
+            }
 
-                // If we disable value printing, we don't have to export symbols from the executable
-                // to shared libraries.
-                cling::Value V;
-                // if (slide_src.last_transaction)
-                //     interp.unload(*slide_src.last_transaction);
-                slide_src.last_transaction = nullptr;
-                auto result = interp.process("void (*update)(ImVec2 slide_size) = [](ImVec2 slide_size){" + slide_src.text() + ";}; update", &V, &slide_src.last_transaction, true /* disableValuePrinting */);
-                slide_src.compiled = true;
-                if (result != cling::Interpreter::kSuccess) {
-                    slide_src.last_transaction = nullptr; // Should be done by cling, but just in case
-                    slide_src.syntax_error = true;
-                } else {
-                    slide_src.syntax_error = false;
-                }
-                // The value in lastV should be a function that we call to re-render the slide
-                if (V.isValid()) {
-                    slide_src.function = reinterpret_cast<void (*)(ImVec2)>(V.getPtr());
-                } else {
-                    slide_src.function = nullptr;
-                }
-            }
-#endif
-            ImGuiErrorRecoveryState state;
-            ImGui::ErrorRecoveryStoreState(&state);
-            try {
-                if (slide_src.function) slide_src.function(slide_size);
-            } catch (std::exception& e) {
-                ImGui::ErrorRecoveryTryToRecoverState(&state);
-                slide_src.exception = e.what();
-                //std::cerr << "Script exception in slide " << i << ": " << e.what() << std::endl;
-            }
-            ImGui::PopScale();
-            ImGui::PopFont();
-            ImGui::EndAnimated();
+            // Before all the slides, the "setup" placeholder
+            // Calculate the height of one row of ImGui::Text
+            ImGui::BeginChild("Setup", ImVec2(slide_size.x, setup_spacer_height), false);
             ImGui::EndChild();
-            if (!slide_src.exception.empty()) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0, 0, 1));
-                ImGui::Text("Exception: %s", slide_src.exception.c_str());
-                ImGui::PopStyleColor();
-            } else {
-                ImGui::Text(""); // Just add some space for symmetry
+            for (int i = 0; i < 10; i++) {
+                bool animate = false;
+                ImGui::PushID(i);
+                ImGui::Text("Slide %d", i);
+                ImGui::SameLine();
+                ImGui::SetCursorPosX(slide_size.x - ImGui::GetStyle().FramePadding.x * 2 -
+                                    ImGui::CalcTextSize(ICON_MDI_REFRESH).x -
+                                    ImGui::CalcTextSize(ICON_MDI_PENCIL).x);
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                std::string slide_id = fmt::format("slide{}", i);
+                if (ImGui::Button(ICON_MDI_PENCIL))
+                    editor.ActivateTab(slide_id);
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_MDI_REFRESH))
+                    animate = true;
+                ImGui::PopStyleColor(1);
+
+                auto top_left = ImGui::GetCursorScreenPos();
+                ImGui::BeginChild("Slide", slide_size, false);
+                ImGui::BeginAnimated(animate);
+                ImGui::PushFont(fira_sans_big);
+                ImGui::PushScale(slide_scale);
+
+                // The problem here is that the drawlist uses window coordinates.
+                // We need to convert the coordinates to window coordinates.
+                // We can do this by using the cursor position.
+                if (!presentation_mode)
+                    ImGui::GetWindowDrawList()->AddRect(top_left, top_left + slide_size, IM_COL32(255, 255, 255, 127));
+                SourceFile &slide_src = presentation.slides[i];
+    #ifdef USE_CLING
+                if (!slide_src.validated) {
+                    try {
+                        cling::InputValidator validator;
+                        auto result = validator.validate(slide_src.text());
+                        slide_src.setValidated(result == cling::InputValidator::kComplete);
+                    } catch (std::exception& e) {
+                        exception_what = e.what();
+                        ImGui::OpenPopup("Exception");
+                    }
+                }
+
+                if (slide_src.validated && !slide_src.compiled && !slide_src.syntax_error) {
+                    slide_src.error_markers.clear();
+                    CaptureStderr cap([&](const char* buf, size_t szbuf) {
+                        extractMarkers(slide_src, buf, szbuf, -1);
+                    });
+
+                    // If we disable value printing, we don't have to export symbols from the executable
+                    // to shared libraries.
+                    cling::Value V;
+                    // if (slide_src.last_transaction)
+                    //     interp.unload(*slide_src.last_transaction);
+                    slide_src.last_transaction = nullptr;
+                    auto result = interp.process("void (*update)(ImVec2 slide_size) = [](ImVec2 slide_size){" + slide_src.text() + ";}; update", &V, &slide_src.last_transaction, true /* disableValuePrinting */);
+                    slide_src.compiled = true;
+                    if (result != cling::Interpreter::kSuccess) {
+                        slide_src.last_transaction = nullptr; // Should be done by cling, but just in case
+                        slide_src.syntax_error = true;
+                    } else {
+                        slide_src.syntax_error = false;
+                    }
+                    // The value in lastV should be a function that we call to re-render the slide
+                    if (V.isValid()) {
+                        slide_src.function = reinterpret_cast<void (*)(ImVec2)>(V.getPtr());
+                    } else {
+                        slide_src.function = nullptr;
+                    }
+                }
+    #endif
+                ImGuiErrorRecoveryState state;
+                ImGui::ErrorRecoveryStoreState(&state);
+                try {
+                    if (slide_src.function) slide_src.function(slide_size);
+                } catch (std::exception& e) {
+                    ImGui::ErrorRecoveryTryToRecoverState(&state);
+                    slide_src.exception = e.what();
+                    //std::cerr << "Script exception in slide " << i << ": " << e.what() << std::endl;
+                }
+                ImGui::PopScale();
+                ImGui::PopFont();
+                ImGui::EndAnimated();
+                ImGui::EndChild();
+                if (!slide_src.exception.empty()) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0, 0, 1));
+                    ImGui::Text("Exception: %s", slide_src.exception.c_str());
+                    ImGui::PopStyleColor();
+                } else {
+                    ImGui::Text(""); // Just add some space for symmetry
+                }
+                ImGui::PopID();
             }
-            ImGui::PopID();
-        }
 
-        // Add a spacer to allow the last slide to be scrolled into view and centered vertically
-        ImGui::BeginChild("Final Spacer", ImVec2(slide_size.x, slide_size.y/2 - text_height), false);
-        ImGui::EndChild();
-
+            // Add a spacer to allow the last slide to be scrolled into view and centered vertically
+            ImGui::BeginChild("Final Spacer", ImVec2(slide_size.x, slide_size.y/2 - text_height), false);
+            ImGui::EndChild();
+        } // "Presentation" window
         ImGui::End();
         ImGui::PopStyleColor();
         ImGui::PopStyleVar(5);
