@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include <imgui.h>
+//#include <imgui_latex.h>
 
 #include <implot.h>
 #include <implot_internal.h>
@@ -482,6 +483,39 @@ void EndFade(ImGaBase *item, double s) {
     }
 }
 
+#if 0
+void PlotLatex(ImGuiID id, const char* latex_begin, const char *latex_end, double x, double y, const ImVec2& pixel_offset = ImVec2(), ImPlotTextFlags flags = ImPlotTextFlags_None) {
+    IM_ASSERT_USER_ERROR(GImPlot->CurrentPlot != nullptr, "PlotText() needs to be called between BeginPlot() and EndPlot()!");
+    SetupLock();
+    ImDrawList & draw_list = *GetPlotDrawList();
+    PushPlotClipRect();
+    ImU32 colTxt = GetStyleColorU32(ImPlotCol_InlayText);
+    if (ImHasFlag(flags,ImPlotTextFlags_Vertical)) {
+#if 0
+        ImVec2 siz = CalcTextSizeVertical(text) * 0.5f;
+        ImVec2 ctr = siz * 0.5f;
+        ImVec2 pos = PlotToPixels(ImPlotPoint(x,y),IMPLOT_AUTO,IMPLOT_AUTO) + ImVec2(-ctr.x, ctr.y) + pixel_offset;
+        if (FitThisFrame() && !ImHasFlag(flags, ImPlotItemFlags_NoFit)) {
+            FitPoint(PixelsToPlot(pos));
+            FitPoint(PixelsToPlot(pos.x + siz.x, pos.y - siz.y));
+        }
+        // not implemented yet
+#endif
+        IM_ASSERT_USER_ERROR(false, "Vertical Latex not implemented yet");
+    }
+    else {
+        ImVec2 siz = ImGui::LatexGetSize(id, latex_begin, latex_end);
+        ImVec2 pos = PlotToPixels(ImPlotPoint(x,y),IMPLOT_AUTO,IMPLOT_AUTO) - siz * 0.5f + pixel_offset;
+        if (FitThisFrame() && !ImHasFlag(flags, ImPlotItemFlags_NoFit)) {
+            FitPoint(PixelsToPlot(pos));
+            FitPoint(PixelsToPlot(pos+siz));
+        }
+        ImGui::LatexInternal(id, pos, colTxt, latex_begin, latex_end);
+    }
+    PopPlotClipRect();
+}
+#endif
+
 void Vector(const char* label_id, ImPlotPoint start, ImPlotPoint end, ImPlotItemFlags flags) {
     if (BeginItemEx(label_id, VectorFitter(start, end), flags, ImPlotCol_Line)) {
         const ImGuiID id = ImGui::GetID(label_id);
@@ -490,9 +524,30 @@ void Vector(const char* label_id, ImPlotPoint start, ImPlotPoint end, ImPlotItem
         RenderVector(start, end);
         if (!ImHasFlag(flags, ImPlotItemFlags_NoLabel)) {
             ImPlotPoint pos = (end + start) / 2;
+
+            // Rotate the vector (end - start) 90 degrees
+            // Map dir to screen coordinates
+            ImVec2 start_screen = Transformer2()(start.x, start.y);
+            ImVec2 end_screen = Transformer2()(end.x, end.y);
+            ImVec2 dir = end_screen - start_screen;
+            ImVec2 normalized_dir = dir / sqrt(dir.x * dir.x + dir.y * dir.y);
+            ImVec2 rotated_dir = ImVec2(-normalized_dir.y, normalized_dir.x);
+
             ImVec4 col = ImPlot::GetStyleColorVec4(ImPlotCol_InlayText);
             ImPlot::PushStyleColor(ImPlotCol_InlayText, ImVec4(col.x, col.y, col.z, s));
-            ImPlot::PlotText(label_id, pos.x, pos.y);
+            float dist = 0.5 * ImGui::GetFontSize();
+#if 0
+            if (flags & ImPlotItemFlags_NoLatex) {
+                ImPlot::PlotText(label_id, pos.x, pos.y, rotated_dir * dist);
+            } else {
+                const char* src_end = label_id + strlen(label_id);
+                if (const char* p = strstr(label_id, "###"))
+                    src_end = p;
+                ImPlot::PlotLatex(id, label_id, src_end, pos.x, pos.y, rotated_dir * dist);
+            }
+#else
+            ImPlot::PlotText(label_id, pos.x, pos.y, rotated_dir * dist);
+#endif
             ImPlot::PopStyleColor();
         }
         EndFade(vector, s);
