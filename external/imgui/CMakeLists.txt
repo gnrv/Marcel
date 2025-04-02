@@ -41,11 +41,20 @@ set(source_list
 
     imga/imga.h
     imga/imga.cpp
-)
+
+    imlatex/graphic_abstract.cpp
+    imlatex/imgui_latex.cpp
+    imlatex/latex.cpp
+    imlatex/imdrawlist_painter.cpp
+ )
 
 
 # Create executable file as project name
 add_library(imgui SHARED ${source_list})
+
+target_compile_definitions(imgui PRIVATE -DMICROTEX_LIBRARY)
+
+target_link_libraries(imgui PUBLIC microtex)
 
 # If using IMGUI_ENABLE_STB_TRUETYPE
 # find_package(Freetype REQUIRED)
@@ -57,4 +66,5 @@ target_include_directories(imgui PUBLIC
     "${PROJECT_SOURCE_DIR}/imgui"
     "${PROJECT_SOURCE_DIR}/implot"
     "${PROJECT_SOURCE_DIR}/implot3d"
+    "${PROJECT_SOURCE_DIR}/imlatex"
 )

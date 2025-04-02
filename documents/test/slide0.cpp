@@ -39,7 +39,7 @@ if (ImPlot::BeginPlot("Hej", plot_size)) {
         }
         xs[0] = 6; xs[1] = 9; ys[0] = 10; ys[1] = 11;
         // open markers
-        ImPlot::Bivector("a ^ b", ImVec2(6, 7), ImVec2(8, 7), ImVec2(9, 11), ImPlotItemFlags_NoLegend);
+        ImPlot::Bivector(R"(a \wedge b)", ImVec2(6, 7), ImVec2(8, 7), ImVec2(9, 11), ImPlotItemFlags_NoLegend);
         ImVec2 d(0.5, -0.5);
         ImPlot::Vector("a", ImVec2(6, 7)+d, ImVec2(8, 7)+d, ImPlotItemFlags_NoLegend);
         ImPlot::Vector("b", ImVec2(8, 7)+d, ImVec2(9, 11)+d, ImPlotItemFlags_NoLegend);

@@ -3,10 +3,15 @@
 #include "graphic_abstract.h"
 
 #include <deque>
+#include <vector>
 
 namespace microtex {
     class ImDrawList_Painter : public Painter {
     private:
+        int manim_n{ 1 };
+        bool was_animating{ false };
+        double t_start{ 0 };
+
         ImDrawList* m_draw_list{ nullptr };
 
         ImVec2 m_offset, m_scale, m_dimensions, m_origin;
@@ -128,5 +133,23 @@ namespace microtex {
         virtual void start(ImVec2 dimensions, ImVec2 scale = ImVec2(1.f, 1.f), ImVec2 inner_padding = ImVec2(20.f, 20.f)) override;
 
         virtual void finish() override;
+
+        /**
+         * @brief Distributes the (functions) call list to the painter, with optional animation
+         *
+         * Animates by scaling and fading in each path and fading in (no scaling) each draw/fill call
+         *
+         * @param animate if true, the calls will be animated
+         * @return true if the animation is ongoing
+         */
+        bool distributeCallListFadeIn(std::vector<Call> &calls, bool animate);
+
+        /**
+         * @brief Distributes the (functions) call list to the painter, with optional animation
+         *
+         * @param animate if true, the calls will be animated with a Manim-inspired animation
+         * @return true if the animation is ongoing
+         */
+        bool distributeCallListManim(const std::vector<Call> &calls, bool animate);
     };
 }

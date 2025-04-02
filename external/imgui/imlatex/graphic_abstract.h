@@ -30,7 +30,7 @@ namespace microtex {
      */
     class MICROTEX_EXPORT Argument {
     private:
-        std::shared_ptr<void> m_data;
+        std::variant<std::string, float, std::vector<float>, Stroke, int, color, u16> m_data;
         bool is_empty = true;
     public:
         enum Type { FLOAT, FLOATV, STROKE, INT, STRING, COLOR, U16 };
@@ -47,7 +47,7 @@ namespace microtex {
 
         template<typename T>
         auto getData() const {
-            return *std::static_pointer_cast<T>(m_data);
+            return std::get<T>(m_data);
         }
     };
 

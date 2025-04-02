@@ -77,15 +77,13 @@ namespace ImGui {
 
         if (latex->image->getLatexErrorMsg().empty()) {
             // TODO: We should only render if ItemAdd returns true
+            ImGuiWindow* window = GetCurrentWindow();
+            const ImVec2 prev_cursor_pos(window->DC.CursorPos);
+            window->DC.CursorPos = pos;
             latex->animate = latex->image->render(ImVec2(1.f, 1.f), ImVec2(0.f, 0.f), latex->animate);
-
-            const ImVec2 text_pos(pos);
-            const ImVec2 text_size(latex->image->getDimensions());
-            ImRect bb(text_pos, text_pos + text_size);
-            ItemSize(text_size, 0.0f);
-            ItemAdd(bb, 0);
+            window->DC.CursorPos = prev_cursor_pos;
         } else {
-            ImGui::Text("%s", latex->image->getLatexErrorMsg().c_str());
+            ImGui::GetWindowDrawList()->AddText(pos, col, latex->image->getLatexErrorMsg().c_str());
         }
     }
 
@@ -104,5 +102,11 @@ namespace ImGui {
         ImU32 col = ImGui::ColorConvertFloat4ToU32(ImGui::GetStyle().Colors[ImGuiCol_Text]);
         const ImVec2 text_pos(window->DC.CursorPos);
         LatexInternal(id, text_pos, col, src, src_end, wrap_pos_x, flags);
+
+        ImLatex *latex = g_Latexes.GetOrAddByKey(id);
+        const ImVec2 text_size(latex->image->getDimensions());
+        ImRect bb(text_pos, text_pos + text_size);
+        ItemSize(text_size, 0.0f);
+        ItemAdd(bb, 0);
     }
 }

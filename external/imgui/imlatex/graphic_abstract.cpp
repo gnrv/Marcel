@@ -18,25 +18,25 @@ inline float min(float a, float b) {
 }
 
 Argument::Argument(const std::string& data) {
-    m_data = std::make_shared<std::string>(data);
+    m_data = data;
 }
 Argument::Argument(float data) {
-    m_data = std::make_shared<float>(data);
+    m_data = data;
 }
 Argument::Argument(const std::vector<float>& data) {
-    m_data = std::make_shared<std::vector<float>>(data);
+    m_data = data;
 }
 Argument::Argument(const Stroke& data) {
-    m_data = std::make_shared<Stroke>(data);
+    m_data = data;
 }
 Argument::Argument(int data) {
-    m_data = std::make_shared<int>(data);
+    m_data = data;
 }
 Argument::Argument(color data) {
-    m_data = std::make_shared<color>(data);
+    m_data = data;
 }
 Argument::Argument(u16 data) {
-    m_data = std::make_shared<u16>(data);
+    m_data = data;
 }
 
 std::unordered_map<std::string, sptr<Font_abstract>> Font_abstract::fonts_sptr = std::unordered_map<std::string, sptr<Font_abstract>>();

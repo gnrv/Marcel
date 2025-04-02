@@ -4,7 +4,7 @@
 #include <iostream>
 
 #include <imgui.h>
-//#include <imgui_latex.h>
+#include <imgui_latex.h>
 
 #include <implot.h>
 #include <implot_internal.h>
@@ -12,6 +12,8 @@
 #include <imga.h>
 
 #include <cstddef>
+
+#define IMGA_ENABLE_LATEX_LABELS 1
 
 namespace ImPlot {
 
@@ -483,7 +485,7 @@ void EndFade(ImGaBase *item, double s) {
     }
 }
 
-#if 0
+#if IMGA_ENABLE_LATEX_LABELS
 void PlotLatex(ImGuiID id, const char* latex_begin, const char *latex_end, double x, double y, const ImVec2& pixel_offset = ImVec2(), ImPlotTextFlags flags = ImPlotTextFlags_None) {
     IM_ASSERT_USER_ERROR(GImPlot->CurrentPlot != nullptr, "PlotText() needs to be called between BeginPlot() and EndPlot()!");
     SetupLock();
@@ -516,6 +518,22 @@ void PlotLatex(ImGuiID id, const char* latex_begin, const char *latex_end, doubl
 }
 #endif
 
+void PlotLabel(ImGuiID id, const char* label_id, double x, double y, const ImVec2& pixel_offset = ImVec2(), ImPlotTextFlags flags = ImPlotTextFlags_None) {
+    #if IMGA_ENABLE_LATEX_LABELS
+    const char* src_end = label_id + strlen(label_id);
+    if (const char* p = strstr(label_id, "###"))
+        src_end = p;
+    if (flags & ImPlotItemFlags_NoLatex) {
+        std::string label(label_id, src_end - label_id);
+        ImPlot::PlotText(label.c_str(), x, y, pixel_offset);
+    } else {
+        ImPlot::PlotLatex(id, label_id, src_end, x, y, pixel_offset);
+    }
+#else
+    ImPlot::PlotText(label_id, pos.x, pos.y, rotated_dir * dist);
+#endif
+}
+
 void Vector(const char* label_id, ImPlotPoint start, ImPlotPoint end, ImPlotItemFlags flags) {
     if (BeginItemEx(label_id, VectorFitter(start, end), flags, ImPlotCol_Line)) {
         const ImGuiID id = ImGui::GetID(label_id);
@@ -536,18 +554,7 @@ void Vector(const char* label_id, ImPlotPoint start, ImPlotPoint end, ImPlotItem
             ImVec4 col = ImPlot::GetStyleColorVec4(ImPlotCol_InlayText);
             ImPlot::PushStyleColor(ImPlotCol_InlayText, ImVec4(col.x, col.y, col.z, s));
             float dist = 0.5 * ImGui::GetFontSize();
-#if 0
-            if (flags & ImPlotItemFlags_NoLatex) {
-                ImPlot::PlotText(label_id, pos.x, pos.y, rotated_dir * dist);
-            } else {
-                const char* src_end = label_id + strlen(label_id);
-                if (const char* p = strstr(label_id, "###"))
-                    src_end = p;
-                ImPlot::PlotLatex(id, label_id, src_end, pos.x, pos.y, rotated_dir * dist);
-            }
-#else
-            ImPlot::PlotText(label_id, pos.x, pos.y, rotated_dir * dist);
-#endif
+            PlotLabel(id, label_id, pos.x, pos.y, rotated_dir * dist, flags);
             ImPlot::PopStyleColor();
         }
         EndFade(vector, s);
@@ -562,6 +569,7 @@ ImPool<ImBivector> g_Bivectors;
 
 void Bivector(const char* label_id, ImPlotPoint start, ImPlotPoint mid, ImPlotPoint end, ImPlotItemFlags flags) {
     if (BeginItemEx(label_id, VectorFitter(start, end), flags, ImPlotCol_Line)) {
+        const ImGuiID id = ImGui::GetID(label_id);
         ImPlotPoint a = mid - start;
         auto bivector = g_Bivectors.GetOrAddByKey(ImGui::GetID(label_id));
         double s = BeginFade(bivector);
@@ -625,7 +633,7 @@ void Bivector(const char* label_id, ImPlotPoint start, ImPlotPoint mid, ImPlotPo
             ImPlotPoint pos = (end + start) / 2;
             ImVec4 col = ImPlot::GetStyleColorVec4(ImPlotCol_InlayText);
             ImPlot::PushStyleColor(ImPlotCol_InlayText, ImVec4(col.x, col.y, col.z, s));
-            ImPlot::PlotText(label_id, pos.x, pos.y);
+            PlotLabel(id, label_id, pos.x, pos.y, ImVec2(0, 0), flags);
             ImPlot::PopStyleColor();
         }
 
@@ -637,6 +645,7 @@ void Bivector(const char* label_id, ImPlotPoint start, ImPlotPoint mid, ImPlotPo
 void Bivector(const char* label_id, ImPlotPoint center, double area, ImPlotItemFlags flags) {
     double radius = sqrt(fabs(area) / M_PI);
     if (BeginItemEx(label_id, VectorFitter(center - ImPlotPoint(radius, radius), center + ImPlotPoint(radius, radius)), flags, ImPlotCol_Line)) {
+        const ImGuiID id = ImGui::GetID(label_id);
         // I haven't managed to understand Transformer1, so to be safe we transform both the axes of the
         // circle into an ellipse. Then we compute a screen space circle with the same area as that ellipse.
         ImPlotPoint x_axis = center + ImPlotPoint(radius, 0);
@@ -679,7 +688,7 @@ void Bivector(const char* label_id, ImPlotPoint center, double area, ImPlotItemF
         if (!ImHasFlag(flags, ImPlotItemFlags_NoLabel)) {
             ImVec4 col = ImPlot::GetStyleColorVec4(ImPlotCol_InlayText);
             ImPlot::PushStyleColor(ImPlotCol_InlayText, ImVec4(col.x, col.y, col.z, s));
-            ImPlot::PlotText(label_id, center.x, center.y);
+            ImPlot::PlotLabel(id, label_id, center.x, center.y, ImVec2(0, 0), flags);
             ImPlot::PopStyleColor();
         }
 

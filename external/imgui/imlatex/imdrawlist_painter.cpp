@@ -271,6 +271,8 @@ void ImDrawList_Painter::fillPath(i32 id) {
         std::reverse(m_draw_list->_Path.begin(), m_draw_list->_Path.end());
         // To punch a hole, draw using the background color
         ImU32 style_bgcolor = ImGui::GetColorU32(ImGuiCol_WindowBg);
+        // Whatever the alpha was, we need to set it to 0xFF
+        style_bgcolor = (style_bgcolor & 0x00FFFFFF) | (0xFF << 24);
         m_draw_list->PathFillConcave(style_bgcolor);
     }
 
@@ -359,4 +361,209 @@ void ImDrawList_Painter::pathSanityCheck() {
         }
     }
 #endif
+}
+
+using microtex::Call;
+using microtex::Painter;
+using microtex::color;
+using microtex::Stroke;
+using microtex::u32;
+using microtex::i32;
+void visit(Painter *painter, const Call &call) {
+    if (call.fct_name == "setColor") {
+        painter->setColor(call.arguments[0].getData<color>());
+    }
+    else if (call.fct_name == "setStroke") {
+        painter->setStroke(call.arguments[0].getData<Stroke>());
+    }
+    else if (call.fct_name == "setStrokeWidth") {
+        painter->setStrokeWidth(call.arguments[0].getData<float>());
+    }
+    else if (call.fct_name == "setDash") {
+        painter->setDash(call.arguments[0].getData<std::vector<float>>());
+    }
+    else if (call.fct_name == "setFont") {
+        painter->setFont(
+            call.arguments[0].getData<std::string>(),
+            call.arguments[1].getData<float>(),
+            call.arguments[2].getData<int>(),
+            call.arguments[3].getData<std::string>()
+        );
+    }
+    else if (call.fct_name == "setFontSize") {
+        painter->setFontSize(call.arguments[0].getData<float>());
+    }
+    else if (call.fct_name == "translate") {
+        painter->translate(call.arguments[0].getData<float>(), call.arguments[1].getData<float>());
+    }
+    else if (call.fct_name == "scale") {
+        painter->scale(call.arguments[0].getData<float>(), call.arguments[1].getData<float>());
+    }
+    else if (call.fct_name == "rotate") {
+        painter->rotate(call.arguments[0].getData<float>());
+    }
+    else if (call.fct_name == "rotateAroundPt") {
+        painter->rotate(
+            call.arguments[0].getData<float>(),
+            call.arguments[1].getData<float>(),
+            call.arguments[2].getData<float>()
+        );
+    }
+    else if (call.fct_name == "reset") {
+        painter->reset();
+    }
+    else if (call.fct_name == "drawGlyph") {
+        painter->drawGlyph(
+            call.arguments[0].getData<u32>(),
+            call.arguments[1].getData<float>(),
+            call.arguments[2].getData<float>()
+        );
+    }
+    else if (call.fct_name == "beginPath") {
+        painter->beginPath(call.arguments[0].getData<i32>());
+    }
+    else if (call.fct_name == "moveTo") {
+        painter->moveTo(call.arguments[0].getData<float>(), call.arguments[1].getData<float>());
+    }
+    else if (call.fct_name == "lineTo") {
+        painter->lineTo(call.arguments[0].getData<float>(), call.arguments[1].getData<float>());
+    }
+    else if (call.fct_name == "cubicTo") {
+        painter->cubicTo(
+            call.arguments[0].getData<float>(),
+            call.arguments[1].getData<float>(),
+            call.arguments[2].getData<float>(),
+            call.arguments[3].getData<float>(),
+            call.arguments[4].getData<float>(),
+            call.arguments[5].getData<float>()
+        );
+    }
+    else if (call.fct_name == "quadTo") {
+        painter->quadTo(
+            call.arguments[0].getData<float>(),
+            call.arguments[1].getData<float>(),
+            call.arguments[2].getData<float>(),
+            call.arguments[3].getData<float>()
+        );
+    }
+    else if (call.fct_name == "closePath") {
+        painter->closePath();
+    }
+    else if (call.fct_name == "fillPath") {
+        painter->fillPath(call.arguments[0].getData<i32>());
+    }
+    else if (call.fct_name == "drawLine") {
+        painter->drawLine(
+            call.arguments[0].getData<float>(),
+            call.arguments[1].getData<float>(),
+            call.arguments[2].getData<float>(),
+            call.arguments[3].getData<float>()
+        );
+    }
+    else if (call.fct_name == "drawRect") {
+        painter->drawRect(
+            call.arguments[0].getData<float>(),
+            call.arguments[1].getData<float>(),
+            call.arguments[2].getData<float>(),
+            call.arguments[3].getData<float>()
+        );
+    }
+    else if (call.fct_name == "fillRect") {
+        painter->fillRect(
+            call.arguments[0].getData<float>(),
+            call.arguments[1].getData<float>(),
+            call.arguments[2].getData<float>(),
+            call.arguments[3].getData<float>()
+        );
+    }
+    else if (call.fct_name == "drawRoundRect") {
+        painter->drawRoundRect(
+            call.arguments[0].getData<float>(),
+            call.arguments[1].getData<float>(),
+            call.arguments[2].getData<float>(),
+            call.arguments[3].getData<float>(),
+            call.arguments[4].getData<float>(),
+            call.arguments[5].getData<float>()
+        );
+    }
+    else if (call.fct_name == "fillRoundRect") {
+        painter->fillRoundRect(
+            call.arguments[0].getData<float>(),
+            call.arguments[1].getData<float>(),
+            call.arguments[2].getData<float>(),
+            call.arguments[3].getData<float>(),
+            call.arguments[4].getData<float>(),
+            call.arguments[5].getData<float>()
+        );
+    }
+}
+
+bool ImDrawList_Painter::distributeCallListManim(const std::vector<Call> &calls, bool animate) {
+    Painter *painter = this;
+    if (!animate) {
+        manim_n = calls.size();
+    }
+    int i = 0;
+    bool open_path = false;
+    for (auto& call : calls) {
+        if (call.fct_name == "beginPath") {
+            open_path = true;
+        } else if (call.fct_name == "fillPath") {
+            open_path = false;
+        }
+        visit(painter, call);
+        ++i;
+        if (i == manim_n) {
+            break;
+        }
+    }
+    if (open_path) {
+        // painter->setColor(cyan);
+        painter->setStroke(Stroke(20.f, microtex::CAP_ROUND, microtex::JOIN_ROUND));
+        painter->strokePath(0);
+    }
+    if (i == calls.size()) {
+        manim_n = 1;
+        return false; // animation finished
+    }
+
+    ++manim_n;
+    return true; // animation ongoing
+}
+
+static inline float  ImSaturate(float f)                                        { return (f < 0.0f) ? 0.0f : (f > 1.0f) ? 1.0f : f; }
+bool ImDrawList_Painter::distributeCallListFadeIn(std::vector<Call> &calls, bool animate) {
+    Painter *painter = this;
+    if (animate && !was_animating) {
+        t_start = ImGui::GetTime();
+    }
+    int i = 0;
+    constexpr double t_offset = 0.05;
+    constexpr double t_scale = 4;
+    bool all_saturated = true;
+    for (auto& call : calls) {
+        // Compute local interpolation parameter t, 0 <= t <= 1
+        float t = animate ? ImSaturate(t_scale*(ImGui::GetTime() - t_start - i*t_offset)) : 1;
+        if (t < 1)
+            all_saturated = false;
+        if (call.fct_name == "beginPath") {
+            painter->save(); // will be restored in fillPath
+            painter->scale(0.5 + t/2, 0.5 + t/2);
+            visit(painter, call);
+        } else if (call.fct_name == "fillPath") {
+            painter->setColor(microtex::color_fade(painter->getColor(), t));
+            visit(painter, call);
+            painter->restore(); // was saved in beginPath
+            ++i;
+        } else if (call.fct_name.rfind("draw", 0) == 0 || call.fct_name.rfind("fill", 0) == 0) {
+            painter->setColor(microtex::color_fade(painter->getColor(), t));
+            visit(painter, call);
+            ++i;
+        } else {
+            visit(painter, call);
+        }
+    }
+
+    was_animating = !all_saturated;
+    return was_animating;
 }
