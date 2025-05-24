@@ -1,3 +1,17 @@
+## Build
+
+### Build Cling Dependency
+```
+cd external/root-project
+mkdir cling-build && cd cling-build
+cmake -DLLVM_EXTERNAL_PROJECTS=cling -DLLVM_EXTERNAL_CLING_SOURCE_DIR=../cling/ -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="host;NVPTX;WebAssembly" -DCMAKE_BUILD_TYPE=RelWithDebInfo ../llvm-project/llvm
+cmake --build . --target cling
+```
+
+### Build this thing
+
+...
+
 ### Use mold
 Download a recent mold release from [GitHub](https://github.com/rui314/mold/releases).
 
