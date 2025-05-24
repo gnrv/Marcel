@@ -146,7 +146,7 @@ void Editor::Render(std::string &exception_what) {
     }
 
     // TextEditor dialogs
-    if (ImGui::BeginPopupModal("Save Failed", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("Exception", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("%s", exception_what.c_str());
         if (ImGui::Button("OK"))
             ImGui::CloseCurrentPopup();
