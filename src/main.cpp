@@ -78,6 +78,57 @@ void extractMarkers(SourceFile &source_file, const char *buf, size_t size, size_
     std::cerr << buf_str << std::endl;
 }
 
+struct MyAppSettings {
+    std::function<void()> ToggleFullscreen = nullptr;
+    GLFWwindow* window = nullptr;
+    int window_x = 100, window_y = 100, window_w = 1280, window_h = 720;
+};
+static MyAppSettings g_MyAppSettings;
+
+// Called when a [MyApp][main] section is found
+static void* MySettings_ReadOpen(ImGuiContext*, ImGuiSettingsHandler*, const char* name) {
+    if (strcmp(name, "main") == 0)
+        return &g_MyAppSettings;
+    return nullptr;
+}
+
+// Called for each line in the section
+static void MySettings_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void* entry, const char* line) {
+    MyAppSettings* settings = (MyAppSettings*)entry;
+    int x, y, w, h;
+    if (sscanf(line, "Window=%d,%d,%d,%d", &x, &y, &w, &h) == 4) {
+        settings->window_x = x;
+        settings->window_y = y;
+        settings->window_w = w;
+        settings->window_h = h;
+
+        // Apply the settings to the window if it exists
+        if (settings->window) {
+            // Get primary monitor work area
+            GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+            int mx = 0, my = 0, mw = 1920, mh = 1080;
+            glfwGetMonitorWorkarea(monitor, &mx, &my, &mw, &mh);
+
+            // Clamp window size
+            g_MyAppSettings.window_w = std::min(g_MyAppSettings.window_w, mw);
+            g_MyAppSettings.window_h = std::min(g_MyAppSettings.window_h, mh);
+
+            // Clamp window position (optional, to keep window on screen)
+            g_MyAppSettings.window_x = std::max(mx, std::min(g_MyAppSettings.window_x, mx + mw - g_MyAppSettings.window_w));
+            g_MyAppSettings.window_y = std::max(my, std::min(g_MyAppSettings.window_y, my + mh - g_MyAppSettings.window_h));
+
+            glfwSetWindowPos(settings->window, settings->window_x, settings->window_y);
+            glfwSetWindowSize(settings->window, settings->window_w, settings->window_h);
+        }
+    }
+}
+
+// Called when saving the ini file
+static void MySettings_WriteAll(ImGuiContext*, ImGuiSettingsHandler*, ImGuiTextBuffer* out_buf) {
+    out_buf->appendf("[MyApp][main]\n");
+    out_buf->appendf("Window=%d,%d,%d,%d\n", g_MyAppSettings.window_x, g_MyAppSettings.window_y, g_MyAppSettings.window_w, g_MyAppSettings.window_h);
+}
+
 int main(int argc, char **argv) {
     std::filesystem::current_path(getExecutablePath());
 
@@ -197,12 +248,24 @@ int main(int argc, char **argv) {
                                           "Dear ImGui GLFW+OpenGL3 example", NULL, NULL);
     if (window == NULL)
         return 1;
+    g_MyAppSettings.window = window;
+    g_MyAppSettings.window_w = window_size.x;
+    g_MyAppSettings.window_h = window_size.y;
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); // Enable vsync
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+
+    ImGuiSettingsHandler ini_handler;
+    ini_handler.TypeName = "MyApp";
+    ini_handler.TypeHash = ImHashStr("MyApp");
+    ini_handler.ReadOpenFn = MySettings_ReadOpen;
+    ini_handler.ReadLineFn = MySettings_ReadLine;
+    ini_handler.WriteAllFn = MySettings_WriteAll;
+    ImGui::GetCurrentContext()->SettingsHandlers.push_back(ini_handler);
+
     ImPlot::CreateContext();
     ImPlot3D::CreateContext();
     ImGui::InitLatex();
@@ -280,7 +343,10 @@ int main(int argc, char **argv) {
             const GLFWvidmode* mode = glfwGetVideoMode(monitor);
             glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
         };
+        g_MyAppSettings.window_w = w;
+        g_MyAppSettings.window_h = h;
     };
+    g_MyAppSettings.ToggleFullscreen = ToggleFullscreen;
 
 #ifndef USE_CLING
     presentation.slides[0].function = [](ImVec2 slide_size) {
@@ -677,6 +743,17 @@ int main(int argc, char **argv) {
 
         glfwSwapBuffers(window);
     }
+
+    // Get the window position and size, store to settings
+    // TODO: Handle fullscreen mode. For now, don't save window if it's fullscreen.
+    if (!glfwGetWindowMonitor(window)) {
+        int x, y;
+        glfwGetWindowPos(window, &x, &y);
+        glfwGetWindowSize(window, &g_MyAppSettings.window_w, &g_MyAppSettings.window_h);
+        g_MyAppSettings.window_x = x;
+        g_MyAppSettings.window_y = y;
+    }
+
 
     // Cleanup
     ImGui_ImplOpenGL3_Shutdown();
