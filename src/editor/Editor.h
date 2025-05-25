@@ -29,5 +29,9 @@ public:
     void ActivateTab(const std::string &tab) {
         activate_tab = tab;
     }
+    std::string GetActiveTab() const {
+        return active_tab;
+    }
     void Render(std::string &exception_what);
+    void RenderInline(const std::string &id, std::string &exception_what, const ImVec2 &size = ImVec2(0.0f, 0.0f));
 };

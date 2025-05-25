@@ -1053,6 +1053,8 @@ void TextEditor::Render(const char* aTitle, const ImVec2& aSize, bool aBorder)
     if (mHandleKeyboardInputs)
         ImGui::PopAllowKeyboardFocus();
 
+    mIsFocused = ImGui::IsWindowFocused();
+
     if (!mIgnoreImGuiChild)
         ImGui::EndChild();
 

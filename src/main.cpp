@@ -340,12 +340,16 @@ int main(int argc, char **argv) {
         }
 
         static bool presentation_mode = false;
+        static bool notebook_mode = false;
         static int current_slide = 0;
         bool current_slide_changed = false;
         if (ImGui::IsKeyPressed(ImGuiKey_F5)) {
             presentation_mode = io.KeyShift ? false : true;
             current_slide = 0;
             current_slide_changed = true;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_F10)) {
+            notebook_mode = !notebook_mode;
         }
 
         // Start the Dear ImGui frame
@@ -363,7 +367,7 @@ int main(int argc, char **argv) {
                     ImGuiWindowFlags_NoSavedSettings;
 
         // 1. Code window
-        if (!presentation_mode) {
+        if (!presentation_mode && !notebook_mode) {
             ImVec2 code_window_size{ width/2, height };
             ImGui::SetNextWindowSize(code_window_size);
             ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -400,9 +404,9 @@ int main(int argc, char **argv) {
 #endif
 
         // 2. Presentation window
-        float presentation_width = presentation_mode ? width : width/2;
+        float presentation_width = (presentation_mode || notebook_mode) ? width : width/2;
         ImGui::SetNextWindowSize(ImVec2(presentation_width, height));
-        ImGui::SetNextWindowPos(ImVec2(presentation_mode ? 0 : presentation_width, 0));
+        ImGui::SetNextWindowPos(ImVec2((presentation_mode || notebook_mode) ? 0 : presentation_width, 0));
         // Get rid of horizontal padding
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -429,7 +433,7 @@ int main(int argc, char **argv) {
         float setup_spacer_height = slide_size.y/2 - text_height;
 
         if (ImGui::Begin("Presentation", 0, flags)) {
-            if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+            if (!notebook_mode && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
                 if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
                     current_slide++;
                     if (current_slide >= (int)presentation.slides.size())
@@ -446,41 +450,52 @@ int main(int argc, char **argv) {
             }
 
             if (presentation_mode || current_slide_changed) {
-                ImGui::SetScrollY((presentation_mode ? setup_spacer_height : 0) + text_height + current_slide * (slide_size.y + 2*text_height));
+                ImGui::SetScrollY(text_height + current_slide * (slide_size.y + 2*text_height));
             }
 
             // Before all the slides, the "setup" placeholder
             // Calculate the height of one row of ImGui::Text
-            ImGui::BeginChild("Setup", ImVec2(slide_size.x, setup_spacer_height), false);
-            ImGui::EndChild();
+            if (!presentation_mode && !notebook_mode) {
+                ImGui::BeginChild("Setup", ImVec2(slide_size.x, setup_spacer_height), false);
+                ImGui::EndChild();
+            }
             for (int i = 0; i < 10; i++) {
                 bool animate = false;
                 ImGui::PushID(i);
-                ImGui::Text("Slide %d", i);
-                ImGui::SameLine();
-                ImGui::SetCursorPosX(slide_size.x - ImGui::GetStyle().FramePadding.x * 2 -
-                                    ImGui::CalcTextSize(ICON_MDI_REFRESH).x -
-                                    ImGui::CalcTextSize(ICON_MDI_PENCIL).x);
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-                std::string slide_id = fmt::format("slide{}", i);
-                if (ImGui::Button(ICON_MDI_PENCIL))
-                    editor.ActivateTab(slide_id);
-                ImGui::SameLine();
-                if (ImGui::Button(ICON_MDI_REFRESH))
-                    animate = true;
-                ImGui::PopStyleColor(1);
-
                 auto top_left = ImGui::GetCursorScreenPos();
+                ImGui::Text("Slide %d", i);
+                std::string slide_id = fmt::format("slide{}", i);
+                if (notebook_mode) {
+                    editor.RenderInline(slide_id, exception_what);
+                } else {
+                    ImGui::SameLine();
+                    ImGui::SetCursorPosX(slide_size.x - ImGui::GetStyle().FramePadding.x * 2 -
+                                        ImGui::CalcTextSize(ICON_MDI_REFRESH).x -
+                                        ImGui::CalcTextSize(ICON_MDI_PENCIL).x);
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                    if (ImGui::Button(ICON_MDI_PENCIL))
+                        editor.ActivateTab(slide_id);
+                    ImGui::SameLine();
+                    if (ImGui::Button(ICON_MDI_REFRESH))
+                        animate = true;
+                    ImGui::PopStyleColor(1);
+                }
+                auto bottom_left = ImGui::GetCursorScreenPos();
+                // The problem here is that the drawlist uses window coordinates.
+                // We need to convert the coordinates to window coordinates.
+                // We can do this by using the cursor position.
+                if (!presentation_mode) {
+                    ImU32 color = ImGui::GetColorU32(ImGuiCol_Border);
+                    if (editor.GetActiveTab() == slide_id)
+                        color = ImGui::GetColorU32(ImGuiCol_HeaderActive);
+                    ImGui::GetWindowDrawList()->AddRect(top_left, bottom_left + ImVec2(slide_size.x, 0), color);
+                }
+
                 ImGui::BeginChild("Slide", slide_size, false);
                 ImGui::BeginAnimated(animate);
                 ImGui::PushFont(fira_sans_big);
                 ImGui::PushScale(slide_scale);
 
-                // The problem here is that the drawlist uses window coordinates.
-                // We need to convert the coordinates to window coordinates.
-                // We can do this by using the cursor position.
-                if (!presentation_mode)
-                    ImGui::GetWindowDrawList()->AddRect(top_left, top_left + slide_size, IM_COL32(255, 255, 255, 127));
                 SourceFile &slide_src = presentation.slides[i];
     #ifdef USE_CLING
                 if (!slide_src.validated) {
@@ -552,6 +567,14 @@ int main(int argc, char **argv) {
         ImGui::End();
         ImGui::PopStyleColor();
         ImGui::PopStyleVar(5);
+
+        // TextEditor dialogs
+        if (ImGui::BeginPopupModal("Exception", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("%s", exception_what.c_str());
+            if (ImGui::Button("OK"))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
 
         // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
         if (show_demo_window)

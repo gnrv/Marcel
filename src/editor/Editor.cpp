@@ -144,12 +144,31 @@ void Editor::Render(std::string &exception_what) {
             ImGui::OpenPopup("Exception");
         }
     }
+}
 
-    // TextEditor dialogs
-    if (ImGui::BeginPopupModal("Exception", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("%s", exception_what.c_str());
-        if (ImGui::Button("OK"))
-            ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
+void Editor::RenderInline(const std::string &id, std::string &exception_what, const ImVec2 &size)
+{
+    ImGuiIO& io = ImGui::GetIO();
+    TextEditor &editor = editors[id];
+    SourceFile &source_file = presentation.getSourceFile(id);
+    ImGui::PopStyleVar();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushFont(mono_font);
+    editor.SetErrorMarkers(source_file.error_markers);
+    //editor.SetImGuiChildIgnored(true);
+    editor.Render(id.c_str(), ImVec2(size.x ? size.x : 0, size.y ? size.y : editor.PreferredHeight()));
+    //editor.SetImGuiChildIgnored(false);
+    if (editor.IsTextChanged()) {
+        try {
+            source_file.setText(editor.GetText());
+        } catch (std::exception& e) {
+            exception_what = e.what();
+            ImGui::OpenPopup("Exception");
+        }
     }
+    if (editor.IsFocused()) {
+        active_tab = id;
+        activate_tab = id; // For when we next leave notebook mode
+    }
+    ImGui::PopFont();
 }

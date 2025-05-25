@@ -208,6 +208,10 @@ public:
     void SetText(const std::string& aText);
     std::string GetText() const;
 
+    bool IsFocused() const { return mIsFocused; }
+
+    float PreferredHeight() const { return (float)mLines.size() * mCharAdvance.y; }
+
     void SetTextLines(const std::vector<std::string>& aLines);
     std::vector<std::string> GetTextLines() const;
 
@@ -400,4 +404,5 @@ private:
     double mStartTime;
 
     float mLastClick;
+    bool mIsFocused{ false };
 };
