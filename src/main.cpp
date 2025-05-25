@@ -505,6 +505,12 @@ int main(int argc, char **argv) {
         float setup_spacer_height = slide_size.y/2 - text_height;
 
         if (ImGui::Begin("Presentation", 0, flags)) {
+            if (active_tab != editor.GetActiveTab()) {
+                // If the active tab changed, we need to scroll to the top of the new tab
+                current_slide = presentation.indexOf(presentation.getSourceFile(editor.GetActiveTab()));
+                if (current_slide < -1) current_slide = -1;
+            }
+
             bool allow_keyboard_scrolling = true;
             if (notebook_mode) {
                 allow_keyboard_scrolling = (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && editor.IsCursorAtFirstLine()) ||
@@ -534,13 +540,6 @@ int main(int argc, char **argv) {
             }
 
             if (presentation_mode) {
-                if (active_tab != editor.GetActiveTab()) {
-                    // If the active tab changed, we need to scroll to the top of the new tab
-                    current_slide = presentation.indexOf(presentation.getSourceFile(editor.GetActiveTab()));
-                    if (current_slide < -1) current_slide = -1;
-                    current_slide_changed = true;
-                }
-
                 ImGui::SetScrollY(text_height + current_slide * (slide_size.y + 2*text_height));
             }
 
