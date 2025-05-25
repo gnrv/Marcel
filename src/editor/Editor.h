@@ -22,16 +22,31 @@ public:
         }
     }
 
+    Presentation &GetPresentation() {
+        return presentation;
+    }
+
     void SetMonoFont(ImFont *font) {
         mono_font = font;
     }
 
     void ActivateTab(const std::string &tab) {
+        if (editors.find(tab) == editors.end()) {
+            throw std::runtime_error(fmt::format("Tab '{}' does not exist", tab));
+        }
         activate_tab = tab;
     }
     std::string GetActiveTab() const {
         return active_tab;
     }
+
+    TextEditor &GetActiveEditor() {
+        auto it = editors.find(active_tab);
+        if (it != editors.end())
+            return it->second;
+        throw std::runtime_error("Active editor not found");
+    }
+
     void Render(std::string &exception_what);
     void RenderInline(const std::string &id, std::string &exception_what, const ImVec2 &size = ImVec2(0.0f, 0.0f));
 

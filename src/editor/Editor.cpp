@@ -2,65 +2,6 @@
 
 void Editor::Render(std::string &exception_what) {
     ImGuiIO& io = ImGui::GetIO();
-    TextEditor &active_editor = editors[active_tab];
-    ImGui::PopStyleVar();
-    if (ImGui::BeginMenuBar()) {
-        if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("Save")) {
-                try {
-                    presentation.getSourceFile(active_tab).save();
-                } catch (std::exception& e) {
-                    exception_what = e.what();
-                    ImGui::OpenPopup("Exception");
-                }
-            }
-            if (ImGui::MenuItem("Quit", "Alt-F4"))
-                exit(0);
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("Edit")) {
-            bool ro = active_editor.IsReadOnly();
-            if (ImGui::MenuItem("Read-only mode", nullptr, &ro))
-                active_editor.SetReadOnly(ro);
-            ImGui::Separator();
-
-            if (ImGui::MenuItem("Undo", "Ctrl-Z", nullptr, !ro && active_editor.CanUndo()))
-                active_editor.Undo();
-            if (ImGui::MenuItem("Redo", "Ctrl-Y", nullptr, !ro && active_editor.CanRedo()))
-                active_editor.Redo();
-
-            ImGui::Separator();
-
-            if (ImGui::MenuItem("Copy", "Ctrl-C", nullptr, active_editor.HasSelection()))
-                active_editor.Copy();
-            if (ImGui::MenuItem("Cut", "Ctrl-X", nullptr, !ro && active_editor.HasSelection()))
-                active_editor.Cut();
-            if (ImGui::MenuItem("Delete", "Del", nullptr, !ro && active_editor.HasSelection()))
-                active_editor.Delete();
-            if (ImGui::MenuItem("Paste", "Ctrl-V", nullptr, !ro && ImGui::GetClipboardText() != nullptr))
-                active_editor.Paste();
-
-            ImGui::Separator();
-
-            if (ImGui::MenuItem("Select all", nullptr, nullptr))
-                active_editor.SetSelection(TextEditor::Coordinates(), TextEditor::Coordinates(active_editor.GetTotalLines(), 0));
-
-            ImGui::EndMenu();
-        }
-
-        if (ImGui::BeginMenu("View")) {
-            if (ImGui::MenuItem("Start Presentation", "F5")) {
-            }
-            if (ImGui::MenuItem("Toggle Notebook View", "F10")) {
-            }
-            if (ImGui::MenuItem("Toggle Full Screen", "F11")) {
-                //ToggleFullscreen();
-            }
-            ImGui::EndMenu();
-        }
-        ImGui::EndMenuBar();
-    }
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
     TextEditor *rendered_editor = nullptr;
     if (ImGui::BeginTabBar("MyTabBar")) {

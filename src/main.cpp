@@ -129,6 +129,64 @@ static void MySettings_WriteAll(ImGuiContext*, ImGuiSettingsHandler*, ImGuiTextB
     out_buf->appendf("Window=%d,%d,%d,%d\n", g_MyAppSettings.window_x, g_MyAppSettings.window_y, g_MyAppSettings.window_w, g_MyAppSettings.window_h);
 }
 
+void RenderMenu(Editor &editor, std::string &exception_what) {
+    TextEditor &active_editor = editor.GetActiveEditor();
+
+    if (ImGui::BeginMenu("File")) {
+    if (ImGui::MenuItem("Save")) {
+        try {
+            editor.GetPresentation().getSourceFile(editor.GetActiveTab()).save();
+        } catch (std::exception& e) {
+            exception_what = e.what();
+            ImGui::OpenPopup("Exception");
+        }
+    }
+    if (ImGui::MenuItem("Quit", "Alt-F4"))
+        exit(0);
+    ImGui::EndMenu();
+}
+if (ImGui::BeginMenu("Edit")) {
+    bool ro = active_editor.IsReadOnly();
+    if (ImGui::MenuItem("Read-only mode", nullptr, &ro))
+        active_editor.SetReadOnly(ro);
+    ImGui::Separator();
+
+    if (ImGui::MenuItem("Undo", "Ctrl-Z", nullptr, !ro && active_editor.CanUndo()))
+        active_editor.Undo();
+    if (ImGui::MenuItem("Redo", "Ctrl-Y", nullptr, !ro && active_editor.CanRedo()))
+        active_editor.Redo();
+
+    ImGui::Separator();
+
+    if (ImGui::MenuItem("Copy", "Ctrl-C", nullptr, active_editor.HasSelection()))
+        active_editor.Copy();
+    if (ImGui::MenuItem("Cut", "Ctrl-X", nullptr, !ro && active_editor.HasSelection()))
+        active_editor.Cut();
+    if (ImGui::MenuItem("Delete", "Del", nullptr, !ro && active_editor.HasSelection()))
+        active_editor.Delete();
+    if (ImGui::MenuItem("Paste", "Ctrl-V", nullptr, !ro && ImGui::GetClipboardText() != nullptr))
+        active_editor.Paste();
+
+    ImGui::Separator();
+
+    if (ImGui::MenuItem("Select all", nullptr, nullptr))
+        active_editor.SetSelection(TextEditor::Coordinates(), TextEditor::Coordinates(active_editor.GetTotalLines(), 0));
+
+    ImGui::EndMenu();
+}
+
+if (ImGui::BeginMenu("View")) {
+    if (ImGui::MenuItem("Start Presentation", "F5")) {
+    }
+    if (ImGui::MenuItem("Toggle Notebook View", "F10")) {
+    }
+    if (ImGui::MenuItem("Toggle Full Screen", "F11")) {
+        //ToggleFullscreen();
+    }
+    ImGui::EndMenu();
+}
+}
+
 int main(int argc, char **argv) {
     std::filesystem::current_path(getExecutablePath());
 
@@ -301,22 +359,23 @@ int main(int argc, char **argv) {
     // - Read 'docs/FONTS.md' for more instructions and details.
     // - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double backslash \\ !
     //io.Fonts->AddFontDefault();
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf", 16.0f);
-    ImFont *fira_sans = io.Fonts->AddFontFromFileTTF("../data/fonts/fira/FiraSans-Regular.ttf", 16.0f*dpi_scale);
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf", base_font_size);
+    const float base_font_size = 16.0f;
+    ImFont *fira_sans = io.Fonts->AddFontFromFileTTF("../data/fonts/fira/FiraSans-Regular.ttf", base_font_size*dpi_scale);
     (void)fira_sans; // We don't use this font, it's the default
 
     ImFontConfig config;
     config.MergeMode = true;
-    config.GlyphMinAdvanceX = 16.0f; // Use if you want to make the icon monospaced
+    config.GlyphMinAdvanceX = base_font_size; // Use if you want to make the icon monospaced
     static const ImWchar icon_ranges[] = { ICON_MIN_MDI, ICON_MAX_MDI, 0 };
-    io.Fonts->AddFontFromFileTTF("../data/fonts/material-design-icons/materialdesignicons-webfont.ttf", 16.0f*dpi_scale, &config, icon_ranges);
+    io.Fonts->AddFontFromFileTTF("../data/fonts/material-design-icons/materialdesignicons-webfont.ttf", base_font_size*dpi_scale, &config, icon_ranges);
 
     // Presentation sizes
     ImFont *fira_sans_big = io.Fonts->AddFontFromFileTTF("../data/fonts/fira/FiraSans-Regular.ttf", 48.0f*dpi_scale);
     ImFont *fira_sans_small = io.Fonts->AddFontFromFileTTF("../data/fonts/fira/FiraSans-Regular.ttf", 32.0f*dpi_scale);
 
-    ImFont *fira_mono = io.Fonts->AddFontFromFileTTF("../data/fonts/fira/FiraMono-Regular.ttf", 16.0f*dpi_scale);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);
+    ImFont *fira_mono = io.Fonts->AddFontFromFileTTF("../data/fonts/fira/FiraMono-Regular.ttf", base_font_size*dpi_scale);
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", base_font_size);
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/ProggyTiny.ttf", 10.0f);
     //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f, NULL, io.Fonts->GetGlyphRangesJapanese());
     //IM_ASSERT(font != NULL);
@@ -443,8 +502,17 @@ int main(int argc, char **argv) {
             ImVec2 code_window_size{ width/2, height };
             ImGui::SetNextWindowSize(code_window_size);
             ImGui::SetNextWindowPos(ImVec2(0, 0));
+
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
             if (ImGui::Begin("Code", 0, flags | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar)) {
+                ImGui::PopStyleVar();
+                if (ImGui::BeginMenuBar()) {
+                    RenderMenu(editor, exception_what);
+
+                    ImGui::EndMenuBar();
+                }
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+
                 editor.Render(exception_what);
             } // "Code" window
             ImGui::End();
@@ -687,7 +755,46 @@ int main(int argc, char **argv) {
         ImGui::PopStyleColor();
         ImGui::PopStyleVar(5);
 
-        // TextEditor dialogs
+        // 3. Overlays
+        if (notebook_mode) {
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+            float width = ImGui::GetStyle().FramePadding.x * 2 +
+                          ImGui::CalcTextSize(ICON_MDI_MENU).x;
+            float height = ImGui::GetTextLineHeightWithSpacing();
+            //ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+
+            ImGuiViewport* viewport = ImGui::GetMainViewport();
+            ImVec2 pos = ImVec2(
+                viewport->Pos.x + viewport->Size.x - width,
+                viewport->Pos.y
+            );
+
+            ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
+            ImGui::SetNextWindowBgAlpha(0.0f); // Transparent background
+            ImGui::SetNextWindowSize(ImVec2(width, height));
+            ImGuiWindowFlags flags = ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
+                                    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            if (ImGui::Begin("HamburgerOverlay", nullptr, flags)) {
+                if (ImGui::Button(ICON_MDI_MENU "##hamburger"))
+                    ImGui::OpenPopup("HamburgerMenu");
+
+                ImGui::PopStyleVar();
+                if (ImGui::BeginPopup("HamburgerMenu")) {
+                    RenderMenu(editor, exception_what);
+                    ImGui::EndPopup();
+                }
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            }
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar(2);
+            ImGui::End();
+        }
+
+        // 4. TextEditor dialogs
         if (ImGui::BeginPopupModal("Exception", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("%s", exception_what.c_str());
             if (ImGui::Button("OK"))
