@@ -341,7 +341,8 @@ int main(int argc, char **argv) {
         }
 
         static bool presentation_mode = false;
-        static bool notebook_mode = false;
+        static bool want_notebook_mode = true; // Start in notebook mode
+        static bool notebook_mode = false; // Start in notebook mode
         static int current_slide = 0;
         bool current_slide_changed = false;
         if (ImGui::IsKeyPressed(ImGuiKey_F5)) {
@@ -351,8 +352,9 @@ int main(int argc, char **argv) {
                 current_slide_changed = true;
             }
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_F10)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_F10) || want_notebook_mode != notebook_mode) {
             notebook_mode = !notebook_mode;
+            want_notebook_mode = notebook_mode;
             current_slide_changed = true;
         }
 
