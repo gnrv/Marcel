@@ -232,6 +232,9 @@ public:
     Coordinates GetCursorPosition() const { return GetActualCursorCoordinates(); }
     void SetCursorPosition(const Coordinates& aPosition);
 
+    bool IsCursorAtFirstLine() const { return GetCursorPosition().mLine == 0; }
+    bool IsCursorAtLastLine() const { return GetCursorPosition().mLine == GetTotalLines() - 1; }
+
     inline void SetHandleMouseInputs(bool aValue) { mHandleMouseInputs = aValue; }
     inline bool IsHandleMouseInputsEnabled() const { return mHandleKeyboardInputs; }
 

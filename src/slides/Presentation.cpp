@@ -50,6 +50,9 @@ void SourceFile::save() const {
 }
 
 int Presentation::indexOf(const SourceFile &slide) const {
+    if (&slide == &setup) {
+        return -1; // Setup is not a slide
+    }
     return std::distance(slides.begin(), std::find_if(slides.begin(), slides.end(), [&slide](const SourceFile &s) {
         return &s == &slide;
     }));

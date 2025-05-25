@@ -49,7 +49,11 @@ void Editor::Render(std::string &exception_what) {
         }
 
         if (ImGui::BeginMenu("View")) {
-            if (ImGui::MenuItem("Full Screen", "F11")) {
+            if (ImGui::MenuItem("Start Presentation", "F5")) {
+            }
+            if (ImGui::MenuItem("Toggle Notebook View", "F10")) {
+            }
+            if (ImGui::MenuItem("Toggle Full Screen", "F11")) {
                 //ToggleFullscreen();
             }
             ImGui::EndMenu();

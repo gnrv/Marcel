@@ -34,4 +34,17 @@ public:
     }
     void Render(std::string &exception_what);
     void RenderInline(const std::string &id, std::string &exception_what, const ImVec2 &size = ImVec2(0.0f, 0.0f));
+
+    bool IsCursorAtFirstLine() const {
+        auto it = editors.find(active_tab);
+        if (it != editors.end())
+            return it->second.IsCursorAtFirstLine();
+        return false;
+    }
+    bool IsCursorAtLastLine() const {
+        auto it = editors.find(active_tab);
+        if (it != editors.end())
+            return it->second.IsCursorAtLastLine();
+        return false;
+    }
 };

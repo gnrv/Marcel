@@ -327,6 +327,7 @@ int main(int argc, char **argv) {
 
     // Main loop
     std::string exception_what;
+    std::string active_tab = "slide0";
     while (!glfwWindowShouldClose(window)) {
         // Poll and handle events (inputs, window resize, etc.)
         // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
@@ -345,11 +346,14 @@ int main(int argc, char **argv) {
         bool current_slide_changed = false;
         if (ImGui::IsKeyPressed(ImGuiKey_F5)) {
             presentation_mode = io.KeyShift ? false : true;
-            current_slide = 0;
-            current_slide_changed = true;
+            if (current_slide != 0) {
+                current_slide = 0;
+                current_slide_changed = true;
+            }
         }
         if (ImGui::IsKeyPressed(ImGuiKey_F10)) {
             notebook_mode = !notebook_mode;
+            current_slide_changed = true;
         }
 
         // Start the Dear ImGui frame
@@ -433,29 +437,69 @@ int main(int argc, char **argv) {
         float setup_spacer_height = slide_size.y/2 - text_height;
 
         if (ImGui::Begin("Presentation", 0, flags)) {
-            if (!notebook_mode && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+            bool allow_keyboard_scrolling = true;
+            if (notebook_mode) {
+                allow_keyboard_scrolling = (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && editor.IsCursorAtFirstLine()) ||
+                                           (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && editor.IsCursorAtLastLine());
+            }
+            if (allow_keyboard_scrolling && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
                 if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
-                    current_slide++;
-                    if (current_slide >= (int)presentation.slides.size())
-                        current_slide = presentation.slides.size() - 1;
-                    current_slide_changed = true;
+                    int next_slide = current_slide + 1;
+                    if (next_slide >= (int)presentation.slides.size())
+                        next_slide = presentation.slides.size() - 1;
+                    if (next_slide != current_slide) {
+                        current_slide = next_slide;
+                        current_slide_changed = true;
+                    }
                 }
 
                 if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
-                    current_slide--;
-                    if (current_slide < 0)
-                        current_slide = 0;
-                    current_slide_changed = true;
+                    int next_slide = current_slide - 1;
+                    int limit = presentation_mode ? 0 : -1;
+                    if (next_slide < limit)
+                        next_slide = limit;
+                    if (next_slide != current_slide) {
+                        current_slide = next_slide;
+                        current_slide_changed = true;
+                    }
                 }
             }
 
-            if (presentation_mode || current_slide_changed) {
+            if (active_tab != editor.GetActiveTab()) {
+                // If the active tab changed, we need to scroll to the top of the new tab
+                current_slide = presentation.indexOf(presentation.getSourceFile(editor.GetActiveTab()));
+                if (current_slide < -1) current_slide = -1;
+                current_slide_changed = true;
+            }
+
+            if (presentation_mode) {
                 ImGui::SetScrollY(text_height + current_slide * (slide_size.y + 2*text_height));
             }
 
+            active_tab = editor.GetActiveTab();
+
             // Before all the slides, the "setup" placeholder
             // Calculate the height of one row of ImGui::Text
-            if (!presentation_mode && !notebook_mode) {
+            if (!presentation_mode) {
+                if (notebook_mode) {
+                    auto top_left = ImGui::GetCursorScreenPos();
+                    ImGui::Text("Setup");
+
+                    if (current_slide == -1 && current_slide_changed) {
+                        ImGui::SetScrollY(ImGui::GetCursorPosY() - text_height);
+                        ImGui::SetNextWindowFocus();
+                        // Prevent the editor from reacting to key up/down
+                        ImGui::SetKeyOwner(ImGuiKey_DownArrow, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
+                        ImGui::SetKeyOwner(ImGuiKey_UpArrow, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
+                    }
+
+                    editor.RenderInline("setup", exception_what);
+                    auto bottom_left = ImGui::GetCursorScreenPos();
+                    ImU32 color = ImGui::GetColorU32(ImGuiCol_Border);
+                    if (editor.GetActiveTab() == "setup")
+                        color = ImGui::GetColorU32(ImGuiCol_HeaderActive);
+                    ImGui::GetWindowDrawList()->AddRect(top_left, bottom_left + ImVec2(slide_size.x, 0), color);
+                }
                 ImGui::BeginChild("Setup", ImVec2(slide_size.x, setup_spacer_height), false);
                 ImGui::EndChild();
             }
@@ -466,6 +510,13 @@ int main(int argc, char **argv) {
                 ImGui::Text("Slide %d", i);
                 std::string slide_id = fmt::format("slide{}", i);
                 if (notebook_mode) {
+                    if (current_slide == i && current_slide_changed) {
+                        ImGui::SetScrollY(ImGui::GetCursorPosY() - text_height);
+                        ImGui::SetNextWindowFocus();
+                        // Prevent the editor from reacting to key up/down
+                        ImGui::SetKeyOwner(ImGuiKey_DownArrow, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
+                        ImGui::SetKeyOwner(ImGuiKey_UpArrow, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
+                    }
                     editor.RenderInline(slide_id, exception_what);
                 } else {
                     ImGui::SameLine();
@@ -486,8 +537,9 @@ int main(int argc, char **argv) {
                 // We can do this by using the cursor position.
                 if (!presentation_mode) {
                     ImU32 color = ImGui::GetColorU32(ImGuiCol_Border);
-                    if (editor.GetActiveTab() == slide_id)
+                    if (editor.GetActiveTab() == slide_id) {
                         color = ImGui::GetColorU32(ImGuiCol_HeaderActive);
+                    }
                     ImGui::GetWindowDrawList()->AddRect(top_left, bottom_left + ImVec2(slide_size.x, 0), color);
                 }
 
