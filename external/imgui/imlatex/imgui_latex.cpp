@@ -17,6 +17,15 @@ struct ImLatex {
     ImU32 col{ 0xFF000000 };
 };
 
+float ImGuiFontSizeToLatexFontSize(float font_size) {
+    // Latex font size is in points, and 1 point is 1/72 inch.
+    // Assuming this is Ubuntu or Windows with 96 DPI, 1 point = 72/96 pixels.
+    // If you have a different DPI, you might want to adjust this.
+    // FIXME: Why 86? It was calibrated by comparint ImGui::Text("Hello, world!") to
+    // ImGui::Latex("\\text{Hello, world!}") and adjusting the font size until they matched.
+    return font_size * 72.f / 86.f;
+}
+
 namespace ImGui {
     ImPool<ImLatex> g_Latexes;
 
@@ -40,7 +49,7 @@ namespace ImGui {
             latex->src = src_view;
             latex->wrap_pos_x = wrap_pos_x;;
             latex->image = std::make_unique<Latex::LatexImage>(
-                latex->src, latex->font_size,
+                latex->src, ImGuiFontSizeToLatexFontSize(latex->font_size),
                 wrap_pos_x >= 0 ? wrap_pos_x : 0, 7.f,
                 latex->col);
         }
@@ -66,7 +75,7 @@ namespace ImGui {
             latex->wrap_pos_x = wrap_pos_x;
             latex->col = col;
             latex->image = std::make_unique<Latex::LatexImage>(
-                latex->src, latex->font_size,
+                latex->src, ImGuiFontSizeToLatexFontSize(latex->font_size),
                 wrap_pos_x >= 0 ? wrap_pos_x : 0, 7.f,
                 col);
         }
