@@ -10,8 +10,8 @@
 
 class Editor {
     std::shared_ptr<Presentation> presentation;
-    std::string activate_tab = "slide0";
-    std::string active_tab = "slide0";
+    std::string activate_tab = "setup";
+    std::string active_tab = "setup";
     std::map<std::string, TextEditor> editors;
     ImFont *mono_font = nullptr;
 
@@ -40,14 +40,9 @@ public:
         for (size_t i = n; i < editors.size(); i++) {
             editors.erase(fmt::format("slide{}", i));
         }
-        // Reset active tab to the first slide
-        if (n > 0) {
-            activate_tab = "slide0";
-            active_tab = "slide0";
-        } else {
-            activate_tab = "setup";
-            active_tab = "setup";
-        }
+        // Reset active tab
+        activate_tab = "setup";
+        active_tab = "setup";
     }
 
     void SetMonoFont(ImFont *font) {

@@ -519,7 +519,7 @@ int main(int argc, char **argv) {
 
     // Main loop
     std::string exception_what;
-    std::string active_tab = "slide0";
+    std::string active_tab = editor.GetActiveTab();
     while (!glfwWindowShouldClose(window)) {
         // Poll and handle events (inputs, window resize, etc.)
         // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
