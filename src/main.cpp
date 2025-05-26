@@ -659,8 +659,16 @@ int main(int argc, char **argv) {
 
             bool allow_keyboard_scrolling = true;
             if (notebook_mode) {
+                auto shift = io.KeyShift;
+                auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
+                auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
+
                 allow_keyboard_scrolling = (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && editor.IsCursorAtFirstLine()) ||
                                            (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && editor.IsCursorAtLastLine());
+                if (shift || ctrl || alt) {
+                    // Don't allow keyboard scrolling in notebook mode if any modifier is pressed
+                    allow_keyboard_scrolling = false;
+                }
             }
             if (allow_keyboard_scrolling && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
                 if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
@@ -696,7 +704,7 @@ int main(int argc, char **argv) {
             if (!presentation_mode) {
                 if (notebook_mode) {
                     auto top_left = ImGui::GetCursorScreenPos();
-                    ImGui::Text("Setup");
+                    ImGui::Text("Setup %s", presentation->setup.dirty ? "*" : "");
 
                     if (current_slide == -1 && current_slide_changed) {
                         ImGui::SetScrollY(ImGui::GetCursorPosY() - text_height);
@@ -713,14 +721,17 @@ int main(int argc, char **argv) {
                         color = ImGui::GetColorU32(ImGuiCol_HeaderActive);
                     ImGui::GetWindowDrawList()->AddRect(top_left, bottom_left + ImVec2(slide_size.x, 0), color);
                 }
+
+                SourceFile &setup = presentation->setup;
                 ImGui::BeginChild("Setup", ImVec2(slide_size.x, setup_spacer_height), false);
+                ImGui::Text("%s", setup.value.c_str());
                 ImGui::EndChild();
             }
             for (int i = 0; i < 10; i++) {
                 bool animate = false;
                 ImGui::PushID(i);
                 auto top_left = ImGui::GetCursorScreenPos();
-                ImGui::Text("Slide %d", i);
+                ImGui::Text("Slide %d %s", i, presentation->slides[i].dirty ? "*" : "");
                 std::string slide_id = fmt::format("slide{}", i);
                 if (notebook_mode) {
                     if (current_slide == i && current_slide_changed) {
