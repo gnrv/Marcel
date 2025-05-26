@@ -31,6 +31,9 @@ void SourceFile::setText(const std::string &source) {
         return;
     src = source;
     dirty = true;
+}
+
+void SourceFile::execute() {
     validated = false;
     compiled = false;
     syntax_error = false;

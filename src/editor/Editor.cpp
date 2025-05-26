@@ -95,6 +95,15 @@ void Editor::TrySave(std::string &exception_what) {
             ImGui::OpenPopup("Exception");
         }
     }
+
+    if (ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+        try {
+            presentation->getSourceFile(active_tab).saveAndExecute();
+        } catch (std::exception& e) {
+            exception_what = e.what();
+            ImGui::OpenPopup("Exception");
+        }
+    }
 }
 
 void Editor::RenderInline(const std::string &id, std::string &exception_what, const ImVec2 &size)

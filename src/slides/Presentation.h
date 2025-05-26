@@ -25,6 +25,7 @@ public:
     bool syntax_error{ false };
     cling::Transaction *last_transaction{ nullptr };
     void (*function)(ImVec2){ nullptr };
+    std::string value; // The cling::Value converted to a string, if any
     std::string exception;
     std::map<int, std::string> error_markers;
     size_t lines{ 0 };
@@ -34,7 +35,14 @@ public:
     std::string text() const;
     void setText(const std::string &);
 
+    void execute();
+
     void save() const;
+    void saveAndExecute() {
+        save();
+        execute();
+    }
+
     void setValidated(bool valid) { validated = valid; }
     bool needsCompile() const { return compiled; }
     void setCompiled(bool compilated) { compiled = compilated; }

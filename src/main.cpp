@@ -604,9 +604,19 @@ int main(int argc, char **argv) {
             CaptureStderr cap([&](const char* buf, size_t szbuf) {
                 extractMarkers(setup, buf, szbuf);
             });
-            auto result = interp.process(setup.text(), nullptr, nullptr, true /* disableValuePrinting */);
+            cling::Value V;
+            auto result = interp.process(setup.text(), &V, nullptr, true /* disableValuePrinting */);
             setup.compiled = true;
             setup.syntax_error = result != cling::Interpreter::kSuccess;
+
+            setup.value.clear();
+            setup.function = nullptr;
+            if (V.isValid()) {
+                llvm::raw_string_ostream os(setup.value);
+                V.print(os);
+                os.flush();
+            }
+
         }
 #endif
 
