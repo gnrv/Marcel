@@ -76,6 +76,12 @@ void Editor::Render(std::string &exception_what) {
         rendered_editor ? (rendered_editor->IsOverwrite() ? "Ovr" : "Ins") : "---",
         rendered_editor ? (rendered_editor->CanUndo() ? "*" : " ") : "-");
 
+    TrySave(exception_what);
+}
+
+void Editor::TrySave(std::string &exception_what) {
+    ImGuiIO& io = ImGui::GetIO();
+
     // TextEditor actions
     auto shift = io.KeyShift;
     auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
@@ -114,6 +120,8 @@ void Editor::RenderInline(const std::string &id, std::string &exception_what, co
     if (editor.IsFocused()) {
         active_tab = id;
         activate_tab = id; // For when we next leave notebook mode
+
+        TrySave(exception_what);
     }
     ImGui::PopFont();
 }

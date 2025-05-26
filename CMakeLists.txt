@@ -41,6 +41,9 @@ include_directories(external/IconFontCppHeaders)
 # ---------------
 include_directories(external/stb_image)
 
+# ---- nativefiledialog-extended ----
+add_subdirectory(external/nativefiledialog-extended)
+
 # ----
 # GLFW
 # ----
@@ -126,7 +129,7 @@ if(USE_CLING)
     target_link_options(${PROJECT_NAME} PRIVATE -Wl,--export-dynamic-symbol=*setValueNoAlloc*, -Wl,--export-dynamic-symbol=*cling_runtime_internal_throwIfInvalidPointer*)
 endif()
 
-set(LIB_LINK rapidfuzz::rapidfuzz imgui GL glfw fmt::fmt)
+set(LIB_LINK rapidfuzz::rapidfuzz imgui GL glfw fmt::fmt nfd::nfd)
 #target_link_libraries(${PROJECT_NAME}_lib PUBLIC someObjs)
 target_link_libraries(${PROJECT_NAME}_lib PUBLIC ${LIB_LINK})
 target_link_libraries(${PROJECT_NAME} PRIVATE ${PROJECT_NAME}_lib)

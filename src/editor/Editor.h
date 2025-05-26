@@ -15,6 +15,8 @@ class Editor {
     std::map<std::string, TextEditor> editors;
     ImFont *mono_font = nullptr;
 
+    void TrySave(std::string &exception_what);
+
 public:
     Editor(std::shared_ptr<Presentation> presentation) : presentation(presentation) {
         editors["setup"].SetText(presentation->setup.text());

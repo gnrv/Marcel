@@ -1,5 +1,6 @@
 #include <iostream>
 #include <GL/gl.h>
+#define GLFW_EXPOSE_NATIVE_X11
 #include <GLFW/glfw3.h>
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -51,6 +52,9 @@ static void glfw_error_callback(int error, const char* description)
 #include "test/setup.cpp"
 #endif
 
+#include <nfd.hpp>
+#include <nfd_glfw3.h>
+
 void extractMarkers(SourceFile &source_file, const char *buf, size_t size, size_t offset = 0) {
     source_file.error_markers.clear();
     std::string buf_str(buf, size);
@@ -82,6 +86,7 @@ struct MyAppSettings {
     std::function<void()> ToggleFullscreen = nullptr;
     GLFWwindow* window = nullptr;
     int window_x = 100, window_y = 100, window_w = 1280, window_h = 720;
+    std::string current_folder{ getExecutablePath() + "/../documents/test" };
 };
 static MyAppSettings g_MyAppSettings;
 
@@ -92,10 +97,14 @@ static void* MySettings_ReadOpen(ImGuiContext*, ImGuiSettingsHandler*, const cha
     return nullptr;
 }
 
+#define STRINGIFY_HELPER(x) #x
+#define STRINGIFY(x) STRINGIFY_HELPER(x)
+
 // Called for each line in the section
 static void MySettings_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void* entry, const char* line) {
     MyAppSettings* settings = (MyAppSettings*)entry;
     int x, y, w, h;
+    settings->current_folder.reserve(MAX_PATH);
     if (sscanf(line, "Window=%d,%d,%d,%d", &x, &y, &w, &h) == 4) {
         settings->window_x = x;
         settings->window_y = y;
@@ -120,6 +129,19 @@ static void MySettings_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void* entr
             glfwSetWindowPos(settings->window, settings->window_x, settings->window_y);
             glfwSetWindowSize(settings->window, settings->window_w, settings->window_h);
         }
+    } else if (sscanf(line, "CurrentFolder=%" STRINGIFY(MAX_PATH) "s", settings->current_folder.data()) == 1) {
+        // Set the string length based on the actual read length
+        settings->current_folder.resize(strlen(settings->current_folder.c_str()));
+
+        // Remove quotes if present
+        if (!settings->current_folder.empty() && settings->current_folder.front() == '"' && settings->current_folder.back() == '"') {
+            settings->current_folder = settings->current_folder.substr(1, settings->current_folder.size() - 2);
+        }
+
+        // We don't apply these settings here, the app will load the folder when it starts.
+    }
+    else {
+        std::cerr << "Unknown setting line: " << line << std::endl;
     }
 }
 
@@ -127,12 +149,38 @@ static void MySettings_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void* entr
 static void MySettings_WriteAll(ImGuiContext*, ImGuiSettingsHandler*, ImGuiTextBuffer* out_buf) {
     out_buf->appendf("[MyApp][main]\n");
     out_buf->appendf("Window=%d,%d,%d,%d\n", g_MyAppSettings.window_x, g_MyAppSettings.window_y, g_MyAppSettings.window_w, g_MyAppSettings.window_h);
+    out_buf->appendf("CurrentFolder=%s\n", g_MyAppSettings.current_folder.c_str());
 }
 
-void RenderMenu(Editor &editor, std::string &exception_what) {
+std::string OpenFolderDialog() {
+    NFD::UniquePath outPath;
+    GLFWwindow* glfwParentWindow = g_MyAppSettings.window;
+    nfdwindowhandle_t parentWindow;
+    NFD_GetNativeWindowFromGLFWWindow(glfwParentWindow, &parentWindow);
+    nfdresult_t result = NFD::PickFolder(outPath, g_MyAppSettings.current_folder.c_str(), parentWindow);
+    if (result == NFD_OKAY) {
+        return std::string(outPath.get());
+    }
+    return "";
+}
+
+template<typename TToggleFullscreen, typename TOpenFolder>
+void RenderMenu(Editor &editor, std::string &exception_what, TToggleFullscreen ToggleFullscreen, TOpenFolder OpenFolder) {
     TextEditor &active_editor = editor.GetActiveEditor();
 
     if (ImGui::BeginMenu("File")) {
+    if (ImGui::MenuItem("Open Folder", "Ctrl-O")) {
+        // Open a folder dialog to select the presentation folder
+        std::string path = OpenFolderDialog();
+        if (!path.empty()) {
+            try {
+                OpenFolder(path);
+            } catch (std::exception& e) {
+                exception_what = e.what();
+                ImGui::OpenPopup("Exception");
+            }
+        }
+    }
     if (ImGui::MenuItem("Save")) {
         try {
             editor.GetPresentation().getSourceFile(editor.GetActiveTab()).save();
@@ -181,7 +229,7 @@ if (ImGui::BeginMenu("View")) {
     if (ImGui::MenuItem("Toggle Notebook View", "F10")) {
     }
     if (ImGui::MenuItem("Toggle Full Screen", "F11")) {
-        //ToggleFullscreen();
+        ToggleFullscreen();
     }
     ImGui::EndMenu();
 }
@@ -249,6 +297,8 @@ int main(int argc, char **argv) {
     if (!glfwInit())
         return 1;
 
+    NFD::Init();
+
     // GL 3.0 + GLSL 130
     const char* glsl_version = "#version 130";
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -315,6 +365,13 @@ int main(int argc, char **argv) {
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+
+    // ImGUI won't load the settings from the ini file until we call NewFrame()
+    // Pre-load our settings here
+    auto ini_path = std::filesystem::path(getExecutablePath()) / "imgui.ini";
+    std::string keep_alive = ini_path.string();
+    io.IniFilename = keep_alive.c_str();
 
     ImGuiSettingsHandler ini_handler;
     ini_handler.TypeName = "MyApp";
@@ -324,10 +381,12 @@ int main(int argc, char **argv) {
     ini_handler.WriteAllFn = MySettings_WriteAll;
     ImGui::GetCurrentContext()->SettingsHandlers.push_back(ini_handler);
 
+    // Do an initial read of all settings
+    ImGui::LoadIniSettingsFromDisk(io.IniFilename);
+
     ImPlot::CreateContext();
     ImPlot3D::CreateContext();
     ImGui::InitLatex();
-    ImGuiIO& io = ImGui::GetIO();
     // NavEnableKeyboard messes with TextEditor
     //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
     //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
@@ -386,7 +445,8 @@ int main(int argc, char **argv) {
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
     //ImVec4 clear_color = ImVec4(0.f, 0.f, 0.f, 1.00f);
 
-    std::shared_ptr<Presentation> presentation = std::make_shared<Presentation>("../documents/test");
+    std::filesystem::current_path(g_MyAppSettings.current_folder);
+    std::shared_ptr<Presentation> presentation = std::make_shared<Presentation>(g_MyAppSettings.current_folder);
     Editor editor(presentation);
     editor.SetMonoFont(fira_mono);
 
@@ -406,6 +466,13 @@ int main(int argc, char **argv) {
         g_MyAppSettings.window_h = h;
     };
     g_MyAppSettings.ToggleFullscreen = ToggleFullscreen;
+
+    auto OpenFolder = [&editor, &presentation](const std::string& path) {
+        std::filesystem::current_path(path);
+        presentation = std::make_shared<Presentation>(path);
+        editor.SetPresentation(presentation);
+        g_MyAppSettings.current_folder = path;
+    };
 
 #ifndef USE_CLING
     presentation->slides[0].function = [](ImVec2 slide_size) {
@@ -507,7 +574,7 @@ int main(int argc, char **argv) {
             if (ImGui::Begin("Code", 0, flags | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar)) {
                 ImGui::PopStyleVar();
                 if (ImGui::BeginMenuBar()) {
-                    RenderMenu(editor, exception_what);
+                    RenderMenu(editor, exception_what, ToggleFullscreen, OpenFolder);
 
                     ImGui::EndMenuBar();
                 }
@@ -784,7 +851,7 @@ int main(int argc, char **argv) {
 
                 ImGui::PopStyleVar();
                 if (ImGui::BeginPopup("HamburgerMenu")) {
-                    RenderMenu(editor, exception_what);
+                    RenderMenu(editor, exception_what, ToggleFullscreen, OpenFolder);
                     ImGui::EndPopup();
                 }
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -867,6 +934,8 @@ int main(int argc, char **argv) {
     ImPlot3D::DestroyContext();
     ImPlot::DestroyContext();
     ImGui::DestroyContext();
+
+    NFD::Quit();
 
     glfwDestroyWindow(window);
     glfwTerminate();
