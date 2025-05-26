@@ -386,7 +386,7 @@ int main(int argc, char **argv) {
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
     //ImVec4 clear_color = ImVec4(0.f, 0.f, 0.f, 1.00f);
 
-    Presentation presentation("../documents/test");
+    std::shared_ptr<Presentation> presentation = std::make_shared<Presentation>("../documents/test");
     Editor editor(presentation);
     editor.SetMonoFont(fira_mono);
 
@@ -408,43 +408,43 @@ int main(int argc, char **argv) {
     g_MyAppSettings.ToggleFullscreen = ToggleFullscreen;
 
 #ifndef USE_CLING
-    presentation.slides[0].function = [](ImVec2 slide_size) {
+    presentation->slides[0].function = [](ImVec2 slide_size) {
         (void)slide_size;
         #include "test/slide0.cpp"
     };
-    presentation.slides[1].function = [](ImVec2 slide_size) {
+    presentation->slides[1].function = [](ImVec2 slide_size) {
         (void)slide_size;
         #include "test/slide1.cpp"
     };
-    presentation.slides[2].function = [](ImVec2 slide_size) {
+    presentation->slides[2].function = [](ImVec2 slide_size) {
         (void)slide_size;
         #include "test/slide2.cpp"
     };
-    presentation.slides[3].function = [](ImVec2 slide_size) {
+    presentation->slides[3].function = [](ImVec2 slide_size) {
         (void)slide_size;
         #include "test/slide3.cpp"
     };
-    presentation.slides[4].function = [](ImVec2 slide_size) {
+    presentation->slides[4].function = [](ImVec2 slide_size) {
         (void)slide_size;
         #include "test/slide4.cpp"
     };
-    presentation.slides[5].function = [](ImVec2 slide_size) {
+    presentation->slides[5].function = [](ImVec2 slide_size) {
         (void)slide_size;
         #include "test/slide5.cpp"
     };
-    presentation.slides[6].function = [](ImVec2 slide_size) {
+    presentation->slides[6].function = [](ImVec2 slide_size) {
         (void)slide_size;
         #include "test/slide6.cpp"
     };
-    presentation.slides[7].function = [](ImVec2 slide_size) {
+    presentation->slides[7].function = [](ImVec2 slide_size) {
         (void)slide_size;
         #include "test/slide7.cpp"
     };
-    presentation.slides[8].function = [](ImVec2 slide_size) {
+    presentation->slides[8].function = [](ImVec2 slide_size) {
         (void)slide_size;
         #include "test/slide8.cpp"
     };
-    presentation.slides[9].function = [](ImVec2 slide_size) {
+    presentation->slides[9].function = [](ImVec2 slide_size) {
         (void)slide_size;
         #include "test/slide9.cpp"
     };
@@ -520,7 +520,7 @@ int main(int argc, char **argv) {
         }
 
 #ifdef USE_CLING
-        SourceFile &setup = presentation.setup;
+        SourceFile &setup = presentation->setup;
         if (!setup.validated) {
             try {
                 cling::InputValidator validator;
@@ -575,7 +575,7 @@ int main(int argc, char **argv) {
         if (ImGui::Begin("Presentation", 0, flags)) {
             if (active_tab != editor.GetActiveTab()) {
                 // If the active tab changed, we need to scroll to the top of the new tab
-                current_slide = presentation.indexOf(presentation.getSourceFile(editor.GetActiveTab()));
+                current_slide = presentation->indexOf(presentation->getSourceFile(editor.GetActiveTab()));
                 if (current_slide < -1) current_slide = -1;
             }
 
@@ -587,8 +587,8 @@ int main(int argc, char **argv) {
             if (allow_keyboard_scrolling && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
                 if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
                     int next_slide = current_slide + 1;
-                    if (next_slide >= (int)presentation.slides.size())
-                        next_slide = presentation.slides.size() - 1;
+                    if (next_slide >= (int)presentation->slides.size())
+                        next_slide = presentation->slides.size() - 1;
                     if (next_slide != current_slide) {
                         current_slide = next_slide;
                         current_slide_changed = true;
@@ -683,7 +683,7 @@ int main(int argc, char **argv) {
                 ImGui::PushFont(fira_sans_big);
                 ImGui::PushScale(slide_scale);
 
-                SourceFile &slide_src = presentation.slides[i];
+                SourceFile &slide_src = presentation->slides[i];
     #ifdef USE_CLING
                 if (!slide_src.validated) {
                     try {

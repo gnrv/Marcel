@@ -6,24 +6,46 @@
 #include <cstddef>
 #include <fmt/format.h>
 #include <map>
+#include <memory>
 
 class Editor {
-    Presentation &presentation;
+    std::shared_ptr<Presentation> presentation;
     std::string activate_tab = "slide0";
     std::string active_tab = "slide0";
     std::map<std::string, TextEditor> editors;
     ImFont *mono_font = nullptr;
 
 public:
-    Editor(Presentation &presentation) : presentation(presentation) {
-        editors["setup"].SetText(presentation.setup.text());
-        for (size_t i = 0; i < presentation.slides.size(); i++) {
-            editors[fmt::format("slide{}", i)].SetText(presentation.slides[i].text());
+    Editor(std::shared_ptr<Presentation> presentation) : presentation(presentation) {
+        editors["setup"].SetText(presentation->setup.text());
+        for (size_t i = 0; i < presentation->slides.size(); i++) {
+            editors[fmt::format("slide{}", i)].SetText(presentation->slides[i].text());
         }
     }
 
     Presentation &GetPresentation() {
-        return presentation;
+        return *presentation;
+    }
+
+    void SetPresentation(std::shared_ptr<Presentation> new_presentation) {
+        presentation = new_presentation;
+        editors["setup"].SetText(presentation->setup.text());
+        size_t n = presentation->slides.size();
+        for (size_t i = 0; i < n; i++) {
+            editors[fmt::format("slide{}", i)].SetText(presentation->slides[i].text());
+        }
+        // Remove editors that are no longer in the presentation
+        for (size_t i = n; i < editors.size(); i++) {
+            editors.erase(fmt::format("slide{}", i));
+        }
+        // Reset active tab to the first slide
+        if (n > 0) {
+            activate_tab = "slide0";
+            active_tab = "slide0";
+        } else {
+            activate_tab = "setup";
+            active_tab = "setup";
+        }
     }
 
     void SetMonoFont(ImFont *font) {

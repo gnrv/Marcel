@@ -5,13 +5,13 @@ void Editor::Render(std::string &exception_what) {
 
     TextEditor *rendered_editor = nullptr;
     if (ImGui::BeginTabBar("MyTabBar")) {
-        std::string label_and_id = presentation.setup.path.filename().string() + "###setup";
+        std::string label_and_id = presentation->setup.path.filename().string() + "###setup";
         ImGuiTabItemFlags flags = 0;
         if (activate_tab == "setup") {
             // The tab will not render it contents until the next lap of the loop.
             flags |= ImGuiTabItemFlags_SetSelected;
         }
-        if (presentation.setup.dirty)
+        if (presentation->setup.dirty)
             flags |= ImGuiTabItemFlags_UnsavedDocument;
         if (ImGui::BeginTabItem(label_and_id.c_str(), nullptr, flags)) {
             active_tab = "setup";
@@ -21,12 +21,12 @@ void Editor::Render(std::string &exception_what) {
             auto &editor = editors["setup"];
             ImVec2 editor_size = ImGui::GetContentRegionAvail();
             editor_size.y -= ImGui::GetTextLineHeightWithSpacing();
-            editor.SetErrorMarkers(presentation.setup.error_markers);
+            editor.SetErrorMarkers(presentation->setup.error_markers);
             editor.Render("TextEditor", editor_size);
             rendered_editor = &editor;
             if (editor.IsTextChanged())
                 try {
-                    presentation.setup.setText(editor.GetText());
+                    presentation->setup.setText(editor.GetText());
                 } catch (std::exception& e) {
                     exception_what = e.what();
                     ImGui::OpenPopup("Exception");
@@ -35,8 +35,8 @@ void Editor::Render(std::string &exception_what) {
             ImGui::PopFont();
             ImGui::EndTabItem();
         }
-        for (auto &slide : presentation.slides) {
-            int i = presentation.indexOf(slide);
+        for (auto &slide : presentation->slides) {
+            int i = presentation->indexOf(slide);
             std::string slide_id = fmt::format("slide{}", i);
             std::string label_and_id = slide.path.filename().string() + "###" + slide_id;
             ImGuiTabItemFlags flags = 0;
@@ -83,7 +83,7 @@ void Editor::Render(std::string &exception_what) {
 
     if (ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_S)) {
         try {
-            presentation.getSourceFile(active_tab).save();
+            presentation->getSourceFile(active_tab).save();
         } catch (std::exception& e) {
             exception_what = e.what();
             ImGui::OpenPopup("Exception");
@@ -95,7 +95,7 @@ void Editor::RenderInline(const std::string &id, std::string &exception_what, co
 {
     ImGuiIO& io = ImGui::GetIO();
     TextEditor &editor = editors[id];
-    SourceFile &source_file = presentation.getSourceFile(id);
+    SourceFile &source_file = presentation->getSourceFile(id);
     ImGui::PopStyleVar();
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushFont(mono_font);
