@@ -244,7 +244,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < argc; ++i) {
         new_argv.push_back(argv[i]);
     }
-    new_argv.push_back("--ptrcheck");
+    //new_argv.push_back("--ptrcheck");
     argc = new_argv.size();
     cling::Interpreter interp(argc, new_argv.data());
 
