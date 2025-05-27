@@ -4,6 +4,7 @@
 
 #include <cassert>
 #include <filesystem>
+#include <functional>
 #include <vector>
 #include <map>
 
@@ -24,7 +25,7 @@ public:
     bool compiled{ false };
     bool syntax_error{ false };
     cling::Transaction *last_transaction{ nullptr };
-    void (*function)(ImVec2){ nullptr };
+    std::function<void (ImVec2)> function; // Function to execute the slide, if any
     std::string value; // The cling::Value converted to a string, if any
     std::string exception;
     std::map<int, std::string> error_markers;

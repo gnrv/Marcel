@@ -38,11 +38,15 @@ static void glfw_error_callback(int error, const char* description)
 #include <fstream>
 
 #ifdef USE_CLING
+#include "clang/AST/Mangle.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendActions.h"
 #include "cling/Interpreter/Interpreter.h"
+#include "cling/Interpreter/Transaction.h"
 #include "cling/Interpreter/Value.h"
+#include "cling/Utils/Output.h"
 #include "cling/MetaProcessor/InputValidator.h"
+#include "llvm/ExecutionEngine/Orc/LLJIT.h"
 #endif
 
 #include "system/sys_util.h"
@@ -54,6 +58,58 @@ static void glfw_error_callback(int error, const char* description)
 
 #include <nfd.hpp>
 #include <nfd_glfw3.h>
+
+std::string exprToString(clang::Expr* expr, const clang::ASTContext& context) {
+    clang::LangOptions langOpts;
+    langOpts.CPlusPlus = true;
+    clang::PrintingPolicy policy(langOpts);
+    policy.AnonymousTagLocations = false;
+    policy.SuppressUnwrittenScope = true;
+
+    std::string str;
+    llvm::raw_string_ostream os(str);
+    expr->printPretty(os, nullptr, policy);
+    return os.str();
+}
+
+std::string findResultSymbolFromExtractionFunction(cling::Transaction* tx) {
+    for (auto it = tx->rdecls_begin(); it != tx->rdecls_end(); ++it) {
+        for (clang::DeclGroupRef::const_iterator I = it->m_DGR.begin(), E = it->m_DGR.end(); I != E; ++I) {
+
+            auto* func = llvm::dyn_cast<clang::FunctionDecl>(*I);
+            if (!func) continue;
+            if (!func->getName().starts_with("__cling_")) continue;
+
+            if (auto* body = llvm::dyn_cast<clang::CompoundStmt>(func->getBody())) {
+                for (auto* stmt : body->body()) {
+                    clang::CallExpr* call = nullptr;
+                    if (auto* ret = llvm::dyn_cast<clang::ReturnStmt>(stmt)) {
+                        if (auto* maybeCall = llvm::dyn_cast<clang::CallExpr>(ret->getRetValue()->IgnoreImpCasts())) {
+                            call = maybeCall;
+                        }
+                    } else if (auto* maybeCall = llvm::dyn_cast<clang::CallExpr>(stmt)) {
+                        call = maybeCall;
+                    }
+                    if (call) {
+                        if (auto* callee = call->getDirectCallee()) {
+                            if (callee->getName() == "setValueNoAlloc" || callee->getName() == "setValueWithAlloc") {
+                                if (call->getNumArgs() >= 5) {
+                                    clang::Expr* last_arg = call->getArg(4)->IgnoreImpCasts();
+                                    // if (auto* decl_ref = llvm::dyn_cast<clang::DeclRefExpr>(last_arg)) {
+                                    //     return decl_ref->getDecl()->getNameAsString();
+                                    // }
+                                    return exprToString(last_arg, func->getASTContext());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return std::string();
+}
 
 void extractMarkers(SourceFile &source_file, const char *buf, size_t size, size_t offset = 0) {
     source_file.error_markers.clear();
@@ -773,7 +829,7 @@ int main(int argc, char **argv) {
                 ImGui::PushScale(slide_scale);
 
                 SourceFile &slide_src = presentation->slides[i];
-    #ifdef USE_CLING
+#ifdef USE_CLING
                 if (!slide_src.validated) {
                     try {
                         cling::InputValidator validator;
@@ -797,26 +853,119 @@ int main(int argc, char **argv) {
                     // if (slide_src.last_transaction)
                     //     interp.unload(*slide_src.last_transaction);
                     slide_src.last_transaction = nullptr;
-                    auto result = interp.process("void (*update)(ImVec2 slide_size) = [](ImVec2 slide_size){" + slide_src.text() + ";}; update", &V, &slide_src.last_transaction, true /* disableValuePrinting */);
+                    //auto result = interp.process("void (*update)(ImVec2 slide_size) = [](ImVec2 slide_size){" + slide_src.text() + ";}; update", &V, &slide_src.last_transaction, true /* disableValuePrinting */);
+                    auto result = interp.process(slide_src.text(), &V, &slide_src.last_transaction, true /* disableValuePrinting */);
+
                     slide_src.compiled = true;
                     if (result != cling::Interpreter::kSuccess) {
                         slide_src.last_transaction = nullptr; // Should be done by cling, but just in case
                         slide_src.syntax_error = true;
                     } else {
+                        if (slide_src.last_transaction) {
+                            // cling::log() << "Transaction Decls for slide " << i << ":\n";
+                            // for (cling::Transaction::iterator it = slide_src.last_transaction->decls_begin();
+                            //     it != slide_src.last_transaction->decls_end(); ++it) {
+                            //     it->dump();
+                            // }
+                            // cling::log().flush();
+                            // cling::log() << "Deserialized Translation Decls for slide " << i << ":\n";
+                            // for (cling::Transaction::iterator it = slide_src.last_transaction->deserialized_decls_begin();
+                            //     it != slide_src.last_transaction->deserialized_decls_end(); ++it) {
+                            //     it->dump();
+                            // }
+                            // cling::log().flush();
+                            std::string name = findResultSymbolFromExtractionFunction(slide_src.last_transaction);
+                            std::cerr << "Result symbol for slide " << i << ": " << name << std::endl;
+                            int a = 8;
+                        }
+
                         slide_src.syntax_error = false;
                     }
                     // The value in lastV should be a function that we call to re-render the slide
+                    slide_src.function = nullptr;
+                    slide_src.value.clear();
+
                     if (V.isValid()) {
-                        slide_src.function = reinterpret_cast<void (*)(ImVec2)>(V.getPtr());
-                    } else {
-                        slide_src.function = nullptr;
+                        auto T = V.getType().getCanonicalType().getTypePtrOrNull();
+                        if (const auto *PtrTy = llvm::dyn_cast<clang::PointerType>(T)) {
+                            const clang::Type *Pointee = PtrTy->getPointeeType().getTypePtr();
+                            if (const auto *FuncTy = llvm::dyn_cast<clang::FunctionProtoType>(Pointee)) {
+                                // It's a function pointer!
+                                // You can now inspect the argument types:
+                                for (unsigned i = 0; i < FuncTy->getNumParams(); ++i) {
+                                    clang::QualType ArgType = FuncTy->getParamType(i);
+                                    // ... process ArgType ...
+                                }
+                                slide_src.function = reinterpret_cast<void (*)(ImVec2)>(V.getPtr());
+                            }
+                        } else if (const auto *RefTy = llvm::dyn_cast<clang::ReferenceType>(T)) {
+                            // Reference type (covers both lvalue and rvalue references)
+                            const clang::Type *Pointee = RefTy->getPointeeType().getTypePtr();
+                            if (const auto *CXXRD = Pointee->getAsCXXRecordDecl()) {
+                                if (CXXRD->isLambda()) {
+                                    // This is a reference (or pointer) to a lambda!
+                                    for (const auto *Method : CXXRD->methods()) {
+                                        if (Method->getOverloadedOperator() == clang::OO_Call) {
+                                            // This is the lambda's operator()
+                                            // You can inspect its parameters and return type:
+                                            for (const auto *Param : Method->parameters()) {
+                                                clang::QualType ParamType = Param->getType();
+                                                // ... process ParamType ...
+                                            }
+                                            clang::QualType ReturnType = Method->getReturnType();
+
+                                            // Get the lambda object from the reference
+                                            void* lambda_obj = V.getPtr();
+
+                                            // Create a function pointer to the operator()
+                                            // Assuming operator() takes ImVec2 parameter
+                                            typedef void (*LambdaCallType)(void*, ImVec2);
+
+                                            // Get the mangled name of the operator()
+                                            std::string mangled_name;
+                                            llvm::raw_string_ostream stream(mangled_name);
+                                            interp.getCI()->getASTContext().createMangleContext()->mangleName(Method, stream);
+                                            stream.flush();
+
+                                            // Try to get the address using the mangled name
+                                            LambdaCallType fn_addr = (LambdaCallType )interp.getAddressOfGlobal(mangled_name);
+                                            if (fn_addr) {
+                                                int a = 8;
+                                            }
+
+                                            if (!fn_addr) {
+                                                llvm::orc::LLJIT* EE = interp.getExecutionEngine();
+                                                if (EE) {
+                                                    //auto addr_or_err = EE->lookupLinkerMangled(mangled_name);
+                                                    // if (addr_or_err) {
+                                                    //     // Use ExecutorAddr's toPtr method to convert to function pointer
+                                                    //     fn_addr = addr_or_err->toPtr<LambdaCallType>();
+                                                    // } else {
+                                                    //     // Handle the error if needed
+                                                    //     //llvm::consumeError(addr_or_err.takeError());
+                                                    // }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!slide_src.function) {
+                            // If we don't have a function, we can still print the value
+                            llvm::raw_string_ostream os(slide_src.value);
+                            V.print(os);
+                            os.flush();
+                        }
                     }
                 }
-    #endif
+#endif
                 ImGuiErrorRecoveryState state;
                 ImGui::ErrorRecoveryStoreState(&state);
                 try {
                     if (slide_src.function) slide_src.function(slide_size);
+                    else                    ImGui::Text("%s", slide_src.value.c_str());
                 } catch (std::exception& e) {
                     ImGui::ErrorRecoveryTryToRecoverState(&state);
                     slide_src.exception = e.what();
