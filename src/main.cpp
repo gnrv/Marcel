@@ -98,7 +98,11 @@ std::string findResultSymbolFromExtractionFunction(cling::Transaction* tx) {
                                     // if (auto* decl_ref = llvm::dyn_cast<clang::DeclRefExpr>(last_arg)) {
                                     //     return decl_ref->getDecl()->getNameAsString();
                                     // }
-                                    return exprToString(last_arg, func->getASTContext());
+                                    std::string expr = exprToString(last_arg, func->getASTContext());
+                                    if (expr.starts_with("(void *)")) {
+                                        expr = expr.substr(8); // Remove "(void *)"
+                                    }
+                                    return expr;
                                 }
                             }
                         }
@@ -532,44 +536,34 @@ int main(int argc, char **argv) {
     };
 
 #ifndef USE_CLING
-    presentation->slides[0].function = [](ImVec2 slide_size) {
-        (void)slide_size;
+    presentation->slides[0].function = []() {
         #include "test/slide0.cpp"
     };
-    presentation->slides[1].function = [](ImVec2 slide_size) {
-        (void)slide_size;
+    presentation->slides[1].function = []() {
         #include "test/slide1.cpp"
     };
-    presentation->slides[2].function = [](ImVec2 slide_size) {
-        (void)slide_size;
+    presentation->slides[2].function = []() {
         #include "test/slide2.cpp"
     };
-    presentation->slides[3].function = [](ImVec2 slide_size) {
-        (void)slide_size;
+    presentation->slides[3].function = []() {
         #include "test/slide3.cpp"
     };
-    presentation->slides[4].function = [](ImVec2 slide_size) {
-        (void)slide_size;
+    presentation->slides[4].function = []() {
         #include "test/slide4.cpp"
     };
-    presentation->slides[5].function = [](ImVec2 slide_size) {
-        (void)slide_size;
+    presentation->slides[5].function = []() {
         #include "test/slide5.cpp"
     };
-    presentation->slides[6].function = [](ImVec2 slide_size) {
-        (void)slide_size;
+    presentation->slides[6].function = []() {
         #include "test/slide6.cpp"
     };
-    presentation->slides[7].function = [](ImVec2 slide_size) {
-        (void)slide_size;
+    presentation->slides[7].function = []() {
         #include "test/slide7.cpp"
     };
-    presentation->slides[8].function = [](ImVec2 slide_size) {
-        (void)slide_size;
+    presentation->slides[8].function = []() {
         #include "test/slide8.cpp"
     };
-    presentation->slides[9].function = [](ImVec2 slide_size) {
-        (void)slide_size;
+    presentation->slides[9].function = []() {
         #include "test/slide9.cpp"
     };
 #endif
@@ -861,31 +855,29 @@ int main(int argc, char **argv) {
                         slide_src.last_transaction = nullptr; // Should be done by cling, but just in case
                         slide_src.syntax_error = true;
                     } else {
-                        if (slide_src.last_transaction) {
-                            // cling::log() << "Transaction Decls for slide " << i << ":\n";
-                            // for (cling::Transaction::iterator it = slide_src.last_transaction->decls_begin();
-                            //     it != slide_src.last_transaction->decls_end(); ++it) {
-                            //     it->dump();
-                            // }
-                            // cling::log().flush();
-                            // cling::log() << "Deserialized Translation Decls for slide " << i << ":\n";
-                            // for (cling::Transaction::iterator it = slide_src.last_transaction->deserialized_decls_begin();
-                            //     it != slide_src.last_transaction->deserialized_decls_end(); ++it) {
-                            //     it->dump();
-                            // }
-                            // cling::log().flush();
-                            std::string name = findResultSymbolFromExtractionFunction(slide_src.last_transaction);
-                            std::cerr << "Result symbol for slide " << i << ": " << name << std::endl;
-                            int a = 8;
-                        }
-
                         slide_src.syntax_error = false;
                     }
                     // The value in lastV should be a function that we call to re-render the slide
                     slide_src.function = nullptr;
                     slide_src.value.clear();
 
-                    if (V.isValid()) {
+                    if (V.isValid() && slide_src.last_transaction) {
+                        // cling::log() << "Transaction Decls for slide " << i << ":\n";
+                        // for (cling::Transaction::iterator it = slide_src.last_transaction->decls_begin();
+                        //     it != slide_src.last_transaction->decls_end(); ++it) {
+                        //     it->dump();
+                        // }
+                        // cling::log().flush();
+                        // cling::log() << "Deserialized Translation Decls for slide " << i << ":\n";
+                        // for (cling::Transaction::iterator it = slide_src.last_transaction->deserialized_decls_begin();
+                        //     it != slide_src.last_transaction->deserialized_decls_end(); ++it) {
+                        //     it->dump();
+                        // }
+                        // cling::log().flush();
+                        std::string expr = findResultSymbolFromExtractionFunction(slide_src.last_transaction);
+                        //std::cerr << "Result expr for slide " << i << ": " << expr << std::endl;
+
+                        void *ptr = nullptr;
                         auto T = V.getType().getCanonicalType().getTypePtrOrNull();
                         if (const auto *PtrTy = llvm::dyn_cast<clang::PointerType>(T)) {
                             const clang::Type *Pointee = PtrTy->getPointeeType().getTypePtr();
@@ -896,7 +888,8 @@ int main(int argc, char **argv) {
                                     clang::QualType ArgType = FuncTy->getParamType(i);
                                     // ... process ArgType ...
                                 }
-                                slide_src.function = reinterpret_cast<void (*)(ImVec2)>(V.getPtr());
+                                clang::QualType ReturnType = FuncTy->getReturnType();
+                                ptr = V.getPtr();
                             }
                         } else if (const auto *RefTy = llvm::dyn_cast<clang::ReferenceType>(T)) {
                             // Reference type (covers both lvalue and rvalue references)
@@ -915,43 +908,22 @@ int main(int argc, char **argv) {
                                             clang::QualType ReturnType = Method->getReturnType();
 
                                             // Get the lambda object from the reference
-                                            void* lambda_obj = V.getPtr();
-
-                                            // Create a function pointer to the operator()
-                                            // Assuming operator() takes ImVec2 parameter
-                                            typedef void (*LambdaCallType)(void*, ImVec2);
-
-                                            // Get the mangled name of the operator()
-                                            std::string mangled_name;
-                                            llvm::raw_string_ostream stream(mangled_name);
-                                            interp.getCI()->getASTContext().createMangleContext()->mangleName(Method, stream);
-                                            stream.flush();
-
-                                            // Try to get the address using the mangled name
-                                            LambdaCallType fn_addr = (LambdaCallType )interp.getAddressOfGlobal(mangled_name);
-                                            if (fn_addr) {
-                                                int a = 8;
-                                            }
-
-                                            if (!fn_addr) {
-                                                llvm::orc::LLJIT* EE = interp.getExecutionEngine();
-                                                if (EE) {
-                                                    //auto addr_or_err = EE->lookupLinkerMangled(mangled_name);
-                                                    // if (addr_or_err) {
-                                                    //     // Use ExecutorAddr's toPtr method to convert to function pointer
-                                                    //     fn_addr = addr_or_err->toPtr<LambdaCallType>();
-                                                    // } else {
-                                                    //     // Handle the error if needed
-                                                    //     //llvm::consumeError(addr_or_err.takeError());
-                                                    // }
-                                                }
-                                            }
+                                            ptr = V.getPtr();
                                         }
                                     }
                                 }
                             }
                         }
-
+                        if (ptr && !expr.empty()) {
+                            std::string code = fmt::format(
+                                "auto lambda_ptr = reinterpret_cast<decltype({})>(0x{:x});\n"
+                                "(*lambda_ptr)();\n",
+                                expr,
+                                reinterpret_cast<uintptr_t>(ptr));
+                            slide_src.function = [&interp, code]() {
+                                interp.process(code, nullptr, nullptr, true /* disableValuePrinting */);
+                            };
+                        }
                         if (!slide_src.function) {
                             // If we don't have a function, we can still print the value
                             llvm::raw_string_ostream os(slide_src.value);
@@ -964,7 +936,7 @@ int main(int argc, char **argv) {
                 ImGuiErrorRecoveryState state;
                 ImGui::ErrorRecoveryStoreState(&state);
                 try {
-                    if (slide_src.function) slide_src.function(slide_size);
+                    if (slide_src.function) slide_src.function();
                     else                    ImGui::Text("%s", slide_src.value.c_str());
                 } catch (std::exception& e) {
                     ImGui::ErrorRecoveryTryToRecoverState(&state);
