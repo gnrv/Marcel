@@ -328,6 +328,8 @@ int main(int argc, char **argv) {
     interp.AddIncludePath(getExecutablePath() + "/../external");
     // Pre-include it
     std::vector<std::string> headers = {
+        "GL/gl.h",
+        "GLFW/glfw3.h",
         "imgui.h",
         "imgui_latex.h",
         "implot.h",
@@ -844,15 +846,12 @@ int main(int argc, char **argv) {
                     // If we disable value printing, we don't have to export symbols from the executable
                     // to shared libraries.
                     cling::Value V;
-                    // if (slide_src.last_transaction)
-                    //     interp.unload(*slide_src.last_transaction);
-                    slide_src.last_transaction = nullptr;
-                    //auto result = interp.process("void (*update)(ImVec2 slide_size) = [](ImVec2 slide_size){" + slide_src.text() + ";}; update", &V, &slide_src.last_transaction, true /* disableValuePrinting */);
-                    auto result = interp.process(slide_src.text(), &V, &slide_src.last_transaction, true /* disableValuePrinting */);
+                    cling::Transaction *transaction = nullptr;
+                    //auto result = interp.process("void (*update)(ImVec2 slide_size) = [](ImVec2 slide_size){" + slide_src.text() + ";}; update", &V, &transaction, true /* disableValuePrinting */);
+                    auto result = interp.process(slide_src.text(), &V, &transaction, true /* disableValuePrinting */);
 
                     slide_src.compiled = true;
                     if (result != cling::Interpreter::kSuccess) {
-                        slide_src.last_transaction = nullptr; // Should be done by cling, but just in case
                         slide_src.syntax_error = true;
                     } else {
                         slide_src.syntax_error = false;
@@ -861,20 +860,20 @@ int main(int argc, char **argv) {
                     slide_src.function = nullptr;
                     slide_src.value.clear();
 
-                    if (V.isValid() && slide_src.last_transaction) {
+                    if (V.isValid() && transaction) {
                         // cling::log() << "Transaction Decls for slide " << i << ":\n";
-                        // for (cling::Transaction::iterator it = slide_src.last_transaction->decls_begin();
-                        //     it != slide_src.last_transaction->decls_end(); ++it) {
+                        // for (cling::Transaction::iterator it = transaction->decls_begin();
+                        //     it != transaction->decls_end(); ++it) {
                         //     it->dump();
                         // }
                         // cling::log().flush();
                         // cling::log() << "Deserialized Translation Decls for slide " << i << ":\n";
-                        // for (cling::Transaction::iterator it = slide_src.last_transaction->deserialized_decls_begin();
-                        //     it != slide_src.last_transaction->deserialized_decls_end(); ++it) {
+                        // for (cling::Transaction::iterator it = transaction->deserialized_decls_begin();
+                        //     it != transaction->deserialized_decls_end(); ++it) {
                         //     it->dump();
                         // }
                         // cling::log().flush();
-                        std::string expr = findResultSymbolFromExtractionFunction(slide_src.last_transaction);
+                        std::string expr = findResultSymbolFromExtractionFunction(transaction);
                         //std::cerr << "Result expr for slide " << i << ": " << expr << std::endl;
 
                         void *ptr = nullptr;
@@ -916,12 +915,16 @@ int main(int argc, char **argv) {
                         }
                         if (ptr && !expr.empty()) {
                             std::string code = fmt::format(
-                                "auto lambda_ptr = reinterpret_cast<decltype({})>(0x{:x});\n"
-                                "(*lambda_ptr)();\n",
+                                "(*reinterpret_cast<decltype({})>(0x{:x}))()",
                                 expr,
                                 reinterpret_cast<uintptr_t>(ptr));
-                            slide_src.function = [&interp, code]() {
-                                interp.process(code, nullptr, nullptr, true /* disableValuePrinting */);
+                            slide_src.last_transaction = nullptr;
+                            slide_src.function = [&interp, code, &slide_src]() {
+                                cling::Value V;
+                                if (slide_src.last_transaction)
+                                    interp.reevaluate(slide_src.last_transaction, nullptr);
+                                else
+                                    interp.evaluate(code, V, &slide_src.last_transaction);
                             };
                         }
                         if (!slide_src.function) {
@@ -1035,6 +1038,25 @@ int main(int argc, char **argv) {
             ImGui::Text("counter = %d", counter);
 
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+
+            // Interpreter dump controls
+            static const char* dump_options[] = {
+                "asttree", "ast", "decl", "undo"
+            };
+            static int current_dump_option = 0;
+            static char dump_filter[256] = "";
+
+            ImGui::Text("Interpreter Dump:");
+            ImGui::Combo("What", &current_dump_option, dump_options, IM_ARRAYSIZE(dump_options));
+            ImGui::InputText("Filter", dump_filter, sizeof(dump_filter));
+            if (ImGui::Button("Dump")) {
+            #ifdef USE_CLING
+                interp.dump(dump_options[current_dump_option], dump_filter);
+            #else
+                std::cout << "Cling not available - dump not supported" << std::endl;
+            #endif
+            }
+
             ImGui::End();
         }
 
