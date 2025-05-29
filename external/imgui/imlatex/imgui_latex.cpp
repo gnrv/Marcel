@@ -26,6 +26,11 @@ float ImGuiFontSizeToLatexFontSize(float font_size) {
     return font_size * 72.f / 86.f;
 }
 
+float ImGuiLatexLineSpaceFromFontSize(float font_size) {
+    // Line space is given in pixels, not points, for MicroTeX.
+    return 0.2 * font_size;
+}
+
 namespace ImGui {
     ImPool<ImLatex> g_Latexes;
 
@@ -47,10 +52,10 @@ namespace ImGui {
         if (latex->src != src_view || latex->wrap_pos_x != wrap_pos_x || latex->font_size != g.FontSize) {
             latex->font_size = g.FontSize;
             latex->src = src_view;
-            latex->wrap_pos_x = wrap_pos_x;;
+            latex->wrap_pos_x = wrap_pos_x;
             latex->image = std::make_unique<Latex::LatexImage>(
                 latex->src, ImGuiFontSizeToLatexFontSize(latex->font_size),
-                wrap_pos_x >= 0 ? wrap_pos_x : 0, 7.f,
+                wrap_pos_x >= 0 ? wrap_pos_x : 0, ImGuiLatexLineSpaceFromFontSize(latex->font_size),
                 latex->col);
         }
 
@@ -76,7 +81,7 @@ namespace ImGui {
             latex->col = col;
             latex->image = std::make_unique<Latex::LatexImage>(
                 latex->src, ImGuiFontSizeToLatexFontSize(latex->font_size),
-                wrap_pos_x >= 0 ? wrap_pos_x : 0, 7.f,
+                wrap_pos_x >= 0 ? wrap_pos_x : 0, ImGuiLatexLineSpaceFromFontSize(latex->font_size),
                 col);
         }
 
