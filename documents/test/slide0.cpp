@@ -1,16 +1,17 @@
-//#include <imga.h>
-
-ImGui::Text("Insehkjhkrt ImPlot Here");
-
 static float vec_y = 5;
 static float mk_size = 6; // ImPlot::GetStyle().MarkerSize
 static float line_weight = 2;
+
+auto update = []() {
+ImGui::Text("Insehkjhkrt ImPlot Here");
 ImGui::SliderFloat("Vector Y", &vec_y, 0, 10);
 ImGui::SliderFloat("Size", &mk_size, 0, 10);
 ImGui::SliderFloat("Vector Weight", &line_weight, 0, 10);
+auto slide_size = ImGui::GetContentRegionAvail();
 float dim = std::min(slide_size.x, slide_size.y);
 ImVec2 plot_size = ImVec2(dim, dim) * 0.8f;
 ImGui::SetCursorPosX((slide_size.x - plot_size.x)/2);
+ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[2]);
 if (ImPlot::BeginPlot("Hej", plot_size)) {
         ImPlot::SetupAxesLimits(0, 12, 0, 12);
 
@@ -54,4 +55,6 @@ if (ImPlot::BeginPlot("Hej", plot_size)) {
 
     ImPlot::EndPlot();
 }
-
+ImGui::PopFont();
+};
+return update;

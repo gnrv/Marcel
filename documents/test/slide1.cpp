@@ -1,3 +1,4 @@
+auto update = [](){
 ImGui::Latex(R"(\begin{gather}
 \gamma_\mu\gamma_\nu+\gamma_\nu\gamma_\mu=2\eta_{\mu\nu}\\
 \mathbf{\sigma}_i = \gamma_i \gamma_0\\
@@ -18,10 +19,12 @@ for (int i = 0; i < 20; i++) {
     ys2[i] = xs2[i] * xs2[i];
     zs2[i] = xs2[i] * ys2[i];
 }
+auto slide_size = ImGui::GetContentRegionAvail();
 float dim = std::min(slide_size.x, slide_size.y);
 ImVec2 plot_size = ImVec2(dim, dim) * 0.8f;
 ImGui::SetCursorPos(ImVec2((slide_size.x - plot_size.x) / 2, (slide_size.y - plot_size.y) / 2));
 ImPlot3D::PushStyleVar(ImPlot3DStyleVar_LineWeight, 2);
+ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[2]);
 if (ImPlot3D::BeginPlot("##Line Plots", plot_size, ImPlot3DFlags_NoLegend)) {
     ImPlot3D::SetupAxes("x", "y", "z", ImPlot3DAxisFlags_NoLabel, ImPlot3DAxisFlags_NoLabel, ImPlot3DAxisFlags_NoLabel);
     ImPlot3D::PlotLine("f(x)", xs1, ys1, zs1, 1001);
@@ -29,8 +32,10 @@ if (ImPlot3D::BeginPlot("##Line Plots", plot_size, ImPlot3DFlags_NoLegend)) {
     ImPlot3D::PlotLine("g(x)", xs2, ys2, zs2, 20, ImPlot3DLineFlags_Segments);
     ImPlot3D::EndPlot();
 }
+ImGui::PopFont();
 ImPlot3D::PopStyleVar();
 //ImGui::PopFont();
 ImGui::Text("Wazz flippin up?");
-
+};
+return update;
 
