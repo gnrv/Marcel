@@ -72,13 +72,15 @@ std::string exprToString(clang::Expr* expr, const clang::ASTContext& context) {
     return os.str();
 }
 
-std::string findResultSymbolFromExtractionFunction(cling::Transaction* tx) {
+std::string findResultExprFromExtractionFunction(cling::Transaction* tx) {
     for (auto it = tx->rdecls_begin(); it != tx->rdecls_end(); ++it) {
         for (clang::DeclGroupRef::const_iterator I = it->m_DGR.begin(), E = it->m_DGR.end(); I != E; ++I) {
 
             auto* func = llvm::dyn_cast<clang::FunctionDecl>(*I);
             if (!func) continue;
-            if (!func->getName().starts_with("__cling_")) continue;
+            // Apparently not all functions have a name, but we can always getNameAsString().
+            //if (!func->getName().starts_with("__cling_")) continue;
+            if (!func->getNameAsString().starts_with("__cling_")) continue;
 
             if (auto* body = llvm::dyn_cast<clang::CompoundStmt>(func->getBody())) {
                 for (auto* stmt : body->body()) {
@@ -873,7 +875,7 @@ int main(int argc, char **argv) {
                         //     it->dump();
                         // }
                         // cling::log().flush();
-                        std::string expr = findResultSymbolFromExtractionFunction(transaction);
+                        std::string expr = findResultExprFromExtractionFunction(transaction);
                         //std::cerr << "Result expr for slide " << i << ": " << expr << std::endl;
 
                         void *ptr = nullptr;
