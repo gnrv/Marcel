@@ -25,3 +25,6 @@
 [submodule "external/nativefiledialog-extended"]
 	path = external/nativefiledialog-extended
 	url = https://github.com/btzy/nativefiledialog-extended
+[submodule "external/nlohmann/json"]
+	path = external/nlohmann/json
+	url = https://github.com/nlohmann/json.git
