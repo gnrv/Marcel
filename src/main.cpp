@@ -82,19 +82,36 @@ std::string findResultExprFromExtractionFunction(cling::Transaction* tx) {
             //if (!func->getName().starts_with("__cling_")) continue;
             if (!func->getNameAsString().starts_with("__cling_")) continue;
 
+            // From ValueExtractionSynthesizer.cpp:
+            // We need to synthesize later:
+            // Wrapper has signature: void w(cling::Value SVR)
+            // case 1):
+            //   setValueNoAlloc(gCling, &SVR, lastExprTy, lastExpr())
+            // case 2):
+            //   new (setValueWithAlloc(gCling, &SVR, lastExprTy)) (lastExpr)
+            // case 2.1):
+            //   copyArray(src, placement, size)
             if (auto* body = llvm::dyn_cast<clang::CompoundStmt>(func->getBody())) {
                 for (auto* stmt : body->body()) {
                     clang::CallExpr* call = nullptr;
+                    clang::CXXNewExpr* cxxNew = nullptr;
+                    // There are two cases: explicit return statement or implicit return of the last expression.
                     if (auto* ret = llvm::dyn_cast<clang::ReturnStmt>(stmt)) {
                         if (auto* maybeCall = llvm::dyn_cast<clang::CallExpr>(ret->getRetValue()->IgnoreImpCasts())) {
                             call = maybeCall;
                         }
+                        if (auto * maybeCxxNew = llvm::dyn_cast<clang::CXXNewExpr>(ret->getRetValue()->IgnoreImpCasts())) {
+                            cxxNew = maybeCxxNew;
+                        }
                     } else if (auto* maybeCall = llvm::dyn_cast<clang::CallExpr>(stmt)) {
                         call = maybeCall;
+                    } else if (auto* maybeCxxNew = llvm::dyn_cast<clang::CXXNewExpr>(stmt)) {
+                        cxxNew = maybeCxxNew;
                     }
                     if (call) {
                         if (auto* callee = call->getDirectCallee()) {
-                            if (callee->getName() == "setValueNoAlloc" || callee->getName() == "setValueWithAlloc") {
+                            // case 1): lastExpr is the fourth argument of setValueNoAlloc
+                            if (callee->getName() == "setValueNoAlloc") {
                                 if (call->getNumArgs() >= 5) {
                                     clang::Expr* last_arg = call->getArg(4)->IgnoreImpCasts();
                                     // if (auto* decl_ref = llvm::dyn_cast<clang::DeclRefExpr>(last_arg)) {
@@ -105,6 +122,28 @@ std::string findResultExprFromExtractionFunction(cling::Transaction* tx) {
                                         expr = expr.substr(8); // Remove "(void *)"
                                     }
                                     return expr;
+                                }
+                            }
+                        }
+                    }
+                    if (cxxNew) {
+                        // case 2): lastExpr is the argument of placement new
+                        //          but we need to check if the destination address is a call to setValueWithAlloc
+                        bool is_placement_new = cxxNew->getNumPlacementArgs() > 0;
+                        if (is_placement_new) {
+                            if (auto* maybeCall = llvm::dyn_cast<clang::CallExpr>(cxxNew->getPlacementArg(0)->IgnoreImpCasts())) {
+                                call = maybeCall;
+                            }
+                            if (call) {
+                                if (auto* callee = call->getDirectCallee()) {
+                                    if (callee->getName() == "setValueWithAlloc") {
+                                        // OK, now we know that the address expression in the placement new
+                                        // is a call to setValueWithAlloc, so we can extract the last expression.
+                                        // Remember, this is the last expression of the call to _new_, not setValueWithAlloc.
+                                        clang::Expr* initializer = cxxNew->getInitializer();
+                                        std::string expr = exprToString(initializer, func->getASTContext());
+                                        return expr;
+                                    }
                                 }
                             }
                         }
@@ -879,6 +918,7 @@ int main(int argc, char **argv) {
                         std::string expr = findResultExprFromExtractionFunction(transaction);
                         //std::cerr << "Result expr for slide " << i << ": " << expr << std::endl;
 
+                        bool is_record = false;
                         void *ptr = nullptr;
                         auto T = V.getType().getCanonicalType().getTypePtrOrNull();
                         if (const auto *PtrTy = llvm::dyn_cast<clang::PointerType>(T)) {
@@ -915,19 +955,57 @@ int main(int argc, char **argv) {
                                     }
                                 }
                             }
+                        } else if (const auto *RecTy = llvm::dyn_cast<clang::RecordType>(T)) {
+                            // Record type (e.g. a struct or class)
+                            const clang::CXXRecordDecl *CXXRD = RecTy->getAsCXXRecordDecl();
+                            if (CXXRD && CXXRD->isLambda()) {
+                                // This is a lambda, we can call it
+                                for (const auto *Method : CXXRD->methods()) {
+                                    if (Method->getOverloadedOperator() == clang::OO_Call) {
+                                        // This is the lambda's operator()
+                                        // You can inspect its parameters and return type:
+                                        for (const auto *Param : Method->parameters()) {
+                                            clang::QualType ParamType = Param->getType();
+                                            // ... process ParamType ...
+                                        }
+                                        clang::QualType ReturnType = Method->getReturnType();
+
+                                        // Get the lambda object from the reference
+                                        is_record = true;
+                                        ptr = V.getPtr();
+                                    }
+                                }
+                            }
                         }
                         if (ptr && !expr.empty()) {
+                            // If expr has the type pointer or reference to lambda:
                             std::string code = fmt::format(
-                                "(*reinterpret_cast<decltype({})>(0x{:x}))()",
+                                "(*reinterpret_cast<decltype({})>(0x{:x}))();",
                                 expr,
                                 reinterpret_cast<uintptr_t>(ptr));
+                            // If expr has the type of the lambda:
+                            if (is_record) {
+                                code = fmt::format(
+                                    "auto similar_lambda = {}; (*reinterpret_cast<decltype(similar_lambda)*>(0x{:x}))();",
+                                    expr,
+                                    reinterpret_cast<uintptr_t>(ptr));
+                            }
                             slide_src.last_transaction = nullptr;
                             slide_src.function = [&interp, code, &slide_src]() {
                                 cling::Value V;
                                 if (slide_src.last_transaction)
                                     interp.reevaluate(slide_src.last_transaction, nullptr);
-                                else
-                                    interp.evaluate(code, V, &slide_src.last_transaction);
+                                else {
+                                    CaptureStderr cap([&](const char* buf, size_t szbuf) {
+                                        extractMarkers(slide_src, buf, szbuf, -1);
+                                    });
+                                    auto result = interp.evaluate(code, V, &slide_src.last_transaction);
+                                    if (result != cling::Interpreter::kSuccess) {
+                                        // If we failed to evaluate, kill this function to prevent further calls
+                                        slide_src.last_transaction = nullptr;
+                                        slide_src.function = nullptr;
+                                    }
+                                }
                             };
                         }
                         if (!slide_src.function) {
