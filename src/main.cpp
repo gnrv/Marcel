@@ -328,6 +328,7 @@ int main(int argc, char **argv) {
     interp.AddIncludePath(getExecutablePath() + "/../external/imgui/implot3d");
     interp.AddIncludePath(getExecutablePath() + "/../external/imgui/imlatex");
     interp.AddIncludePath(getExecutablePath() + "/../external");
+    interp.AddIncludePath(getExecutablePath() + "/../external/nlohmann/json/include");
     // Pre-include it
     std::vector<std::string> headers = {
         "GL/gl.h",
