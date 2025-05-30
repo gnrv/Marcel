@@ -7,15 +7,19 @@
 #include <fmt/format.h>
 #include <map>
 #include <memory>
+#include <set>
 
 class Editor {
     std::shared_ptr<Presentation> presentation;
     std::string activate_tab = "setup";
     std::string active_tab = "setup";
     std::map<std::string, TextEditor> editors;
+    std::set<std::string> files_to_reload;
     ImFont *mono_font = nullptr;
 
     void TrySave(std::string &exception_what);
+    void CheckForFileChanges(SourceFile &source_file, std::string &exception_what);
+    void ReloadFile(const std::string &file_name, std::string &exception_what);
 
 public:
     Editor(std::shared_ptr<Presentation> presentation) : presentation(presentation) {
@@ -24,6 +28,8 @@ public:
             editors[fmt::format("slide{}", i)].SetText(presentation->slides[i].text());
         }
     }
+
+    void OnWindowFocusGained();
 
     Presentation &GetPresentation() {
         return *presentation;
@@ -68,6 +74,8 @@ public:
 
     void Render(std::string &exception_what);
     void RenderInline(const std::string &id, std::string &exception_what, const ImVec2 &size = ImVec2(0.0f, 0.0f));
+
+    void RenderPopups(std::string &exception_what);
 
     bool IsCursorAtFirstLine() const {
         auto it = editors.find(active_tab);

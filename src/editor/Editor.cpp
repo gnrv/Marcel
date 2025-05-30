@@ -1,5 +1,43 @@
 #include "Editor.h"
 
+void Editor::OnWindowFocusGained() {
+    // Mark all source files for reload check
+    presentation->setup.markForReloadCheck();
+    for (auto& slide : presentation->slides) {
+        slide.markForReloadCheck();
+    }
+}
+
+void Editor::CheckForFileChanges(SourceFile &source_file, std::string &exception_what) {
+    // Check setup file
+    if (source_file.needsReloadCheck()) {
+        source_file.clearReloadCheck();
+        if (source_file.hasFileChangedOnDisk()) {
+            if (source_file.dirty) {
+                // File is dirty, ask user
+                files_to_reload.insert(presentation->getName(source_file));
+            } else {
+                // File is clean, reload automatically
+                ReloadFile(presentation->getName(source_file), exception_what);
+            }
+        }
+    }
+}
+
+void Editor::ReloadFile(const std::string& id, std::string &exception_what) {
+    try {
+        SourceFile& source_file = presentation->getSourceFile(id);
+        source_file.reload();
+
+        // Update the editor content
+        if (editors.find(id) != editors.end()) {
+            editors[id].SetText(source_file.text());
+        }
+    } catch (const std::exception& e) {
+        exception_what = e.what();
+    }
+}
+
 void Editor::Render(std::string &exception_what) {
     ImGuiIO& io = ImGui::GetIO();
 
@@ -21,6 +59,7 @@ void Editor::Render(std::string &exception_what) {
             auto &editor = editors["setup"];
             ImVec2 editor_size = ImGui::GetContentRegionAvail();
             editor_size.y -= ImGui::GetTextLineHeightWithSpacing();
+            CheckForFileChanges(presentation->setup, exception_what);
             editor.SetErrorMarkers(presentation->setup.error_markers);
             editor.Render("TextEditor", editor_size);
             rendered_editor = &editor;
@@ -53,6 +92,7 @@ void Editor::Render(std::string &exception_what) {
                 auto &editor = editors[slide_id];
                 ImVec2 editor_size = ImGui::GetContentRegionAvail();
                 editor_size.y -= ImGui::GetTextLineHeightWithSpacing();
+                CheckForFileChanges(slide, exception_what);
                 editor.SetErrorMarkers(slide.error_markers);
                 editor.Render("TextEditor", editor_size);
                 rendered_editor = &editor;
@@ -106,6 +146,38 @@ void Editor::TrySave(std::string &exception_what) {
     }
 }
 
+void Editor::RenderPopups(std::string &exception_what) {
+    if (!files_to_reload.empty()) {
+        ImGui::OpenPopup("File Changed");
+    }
+    if (ImGui::BeginPopupModal("File Changed", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("The file has been modified outside the editor.");
+        ImGui::Text("Do you want to reload it? (This will discard your changes)");
+        ImGui::Separator();
+
+        for (const auto &file_to_reload : files_to_reload) {
+            ImGui::BulletText("%s", file_to_reload.c_str());
+        }
+        if (ImGui::Button("Reload", ImVec2(120, 0))) {
+            for (const auto &file_to_reload : files_to_reload) {
+                ReloadFile(file_to_reload, exception_what);
+            }
+            files_to_reload.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Keep Changes", ImVec2(120, 0))) {
+            // Update the file's last write time to current to avoid future prompts
+            for (const auto &file_to_reload : files_to_reload) {
+                presentation->getSourceFile(file_to_reload).updateLastWriteTime();
+            }
+            files_to_reload.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
 void Editor::RenderInline(const std::string &id, std::string &exception_what, const ImVec2 &size)
 {
     ImGuiIO& io = ImGui::GetIO();
@@ -114,6 +186,9 @@ void Editor::RenderInline(const std::string &id, std::string &exception_what, co
     ImGui::PopStyleVar();
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushFont(mono_font);
+
+    CheckForFileChanges(source_file, exception_what);
+
     editor.SetErrorMarkers(source_file.error_markers);
     //editor.SetImGuiChildIgnored(true);
     editor.Render(id.c_str(), ImVec2(size.x ? size.x : 0, size.y ? size.y : editor.PreferredHeight()));

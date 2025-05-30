@@ -20,13 +20,6 @@
 
 #include <cmath>
 
-static float f_adjust = 0.0f;
-
-static void glfw_error_callback(int error, const char* description)
-{
-    fprintf(stderr, "Glfw Error %d: %s\n", error, description);
-}
-
 #include <string>
 
 #include <chrono>
@@ -58,6 +51,8 @@ static void glfw_error_callback(int error, const char* description)
 
 #include <nfd.hpp>
 #include <nfd_glfw3.h>
+
+static float f_adjust = 0.0f;
 
 std::string exprToString(clang::Expr* expr, const clang::ASTContext& context) {
     clang::LangOptions langOpts;
@@ -398,7 +393,9 @@ int main(int argc, char **argv) {
 #endif
 
     // Setup window
-    glfwSetErrorCallback(glfw_error_callback);
+    glfwSetErrorCallback([](int error, const char* description) {
+        fprintf(stderr, "Glfw Error %d: %s\n", error, description);
+    });
     if (!glfwInit())
         return 1;
 
@@ -554,6 +551,18 @@ int main(int argc, char **argv) {
     std::shared_ptr<Presentation> presentation = std::make_shared<Presentation>(g_MyAppSettings.current_folder);
     Editor editor(presentation);
     editor.SetMonoFont(fira_mono);
+
+    // The editor uses window focus to determine if it should reload files.
+    glfwSetWindowUserPointer(window, &editor);
+    glfwSetWindowFocusCallback(window, [](GLFWwindow* window, int focused) {
+        if (focused) {
+            // Window gained focus - mark all files for reload check
+            Editor* editor = static_cast<Editor*>(glfwGetWindowUserPointer(window));
+            if (editor) {
+                editor->OnWindowFocusGained();
+            }
+        }
+    });
 
     auto ToggleFullscreen = [window_size, window](){
             static int w = window_size.x, h = window_size.y;
@@ -1089,6 +1098,8 @@ int main(int argc, char **argv) {
         }
 
         // 4. TextEditor dialogs
+        editor.RenderPopups(exception_what);
+
         if (ImGui::BeginPopupModal("Exception", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("%s", exception_what.c_str());
             if (ImGui::Button("OK"))

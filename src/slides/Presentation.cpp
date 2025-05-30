@@ -20,6 +20,7 @@ SourceFile::SourceFile(fs::path path)
         }
         src = "";
     }
+    updateLastWriteTime();
 }
 
 std::string SourceFile::text() const {
@@ -50,6 +51,17 @@ void SourceFile::save() const {
         dirty = false;
     else
         throw std::runtime_error("Failed to save file: " + path.string());
+}
+
+void SourceFile::reload() {
+    std::ifstream t(path);
+    if (t.good()) {
+        src = std::string((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
+        lines = std::count(src.begin(), src.end(), '\n');
+    } else {
+        throw std::runtime_error("Failed to reload file: " + path.string());
+    }
+    updateLastWriteTime();
 }
 
 int Presentation::indexOf(const SourceFile &slide) const {
