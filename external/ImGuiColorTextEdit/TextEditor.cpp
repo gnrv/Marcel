@@ -796,11 +796,16 @@ void TextEditor::HandleMouseInputs()
     }
 }
 
-void TextEditor::Render()
+void TextEditor::ComputeCharAdvance()
 {
     /* Compute mCharAdvance regarding to scaled font size (Ctrl + mouse wheel)*/
     const float fontSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, "#", nullptr, nullptr).x;
     mCharAdvance = ImVec2(fontSize, ImGui::GetTextLineHeightWithSpacing() * mLineSpacing);
+}
+
+void TextEditor::Render()
+{
+    ComputeCharAdvance();
 
     /* Update palette with the current alpha from style */
     for (int i = 0; i < (int)PaletteIndex::Max; ++i) {

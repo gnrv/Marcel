@@ -210,7 +210,7 @@ public:
 
     bool IsFocused() const { return mIsFocused; }
 
-    float PreferredHeight() const { return (float)mLines.size() * mCharAdvance.y; }
+    float PreferredHeight() { if (!mCharAdvance.y) ComputeCharAdvance(); return (float)mLines.size() * mCharAdvance.y; }
 
     void SetTextLines(const std::vector<std::string>& aLines);
     std::vector<std::string> GetTextLines() const;
@@ -367,6 +367,7 @@ private:
 
     void HandleKeyboardInputs();
     void HandleMouseInputs();
+    void ComputeCharAdvance();
     void Render();
 
     float mLineSpacing;

@@ -628,10 +628,9 @@ int main(int argc, char **argv) {
         }
 
         static bool presentation_mode = false;
-        static bool want_notebook_mode = true; // Start in notebook mode
-        static bool notebook_mode = false; // Start in notebook mode
+        static bool notebook_mode = true; // Start in notebook mode
         static int current_slide = 0;
-        bool current_slide_changed = false;
+        static bool current_slide_changed = true;
         if (ImGui::IsKeyPressed(ImGuiKey_F5)) {
             presentation_mode = io.KeyShift ? false : true;
             if (current_slide != 0) {
@@ -639,9 +638,8 @@ int main(int argc, char **argv) {
                 current_slide_changed = true;
             }
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_F10) || want_notebook_mode != notebook_mode) {
+        if (ImGui::IsKeyPressed(ImGuiKey_F10)) {
             notebook_mode = !notebook_mode;
-            want_notebook_mode = notebook_mode;
             current_slide_changed = true;
         }
 
@@ -752,7 +750,7 @@ int main(int argc, char **argv) {
             }
 
             bool allow_keyboard_scrolling = true;
-            if (notebook_mode) {
+            if (notebook_mode && !presentation_mode) {
                 auto shift = io.KeyShift;
                 auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
                 auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
@@ -806,6 +804,7 @@ int main(int argc, char **argv) {
                         // Prevent the editor from reacting to key up/down
                         ImGui::SetKeyOwner(ImGuiKey_DownArrow, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
                         ImGui::SetKeyOwner(ImGuiKey_UpArrow, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
+                        current_slide_changed = false;
                     }
 
                     editor.RenderInline("setup", exception_what);
@@ -826,34 +825,35 @@ int main(int argc, char **argv) {
                 ImGui::PushID(i);
                 auto top_left = ImGui::GetCursorScreenPos();
                 ImGui::Text("Slide %d %s", i, presentation->slides[i].dirty ? "*" : "");
-                std::string slide_id = fmt::format("slide{}", i);
-                if (notebook_mode) {
-                    if (current_slide == i && current_slide_changed) {
-                        ImGui::SetScrollY(ImGui::GetCursorPosY() - text_height);
-                        ImGui::SetNextWindowFocus();
-                        // Prevent the editor from reacting to key up/down
-                        ImGui::SetKeyOwner(ImGuiKey_DownArrow, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
-                        ImGui::SetKeyOwner(ImGuiKey_UpArrow, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
-                    }
-                    editor.RenderInline(slide_id, exception_what);
-                } else {
-                    ImGui::SameLine();
-                    ImGui::SetCursorPosX(slide_size.x - ImGui::GetStyle().FramePadding.x * 2 -
-                                        ImGui::CalcTextSize(ICON_MDI_REFRESH).x -
-                                        ImGui::CalcTextSize(ICON_MDI_PENCIL).x);
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-                    if (ImGui::Button(ICON_MDI_PENCIL))
-                        editor.ActivateTab(slide_id);
-                    ImGui::SameLine();
-                    if (ImGui::Button(ICON_MDI_REFRESH))
-                        animate = true;
-                    ImGui::PopStyleColor(1);
-                }
-                auto bottom_left = ImGui::GetCursorScreenPos();
-                // The problem here is that the drawlist uses window coordinates.
-                // We need to convert the coordinates to window coordinates.
-                // We can do this by using the cursor position.
                 if (!presentation_mode) {
+                    std::string slide_id = fmt::format("slide{}", i);
+                    if (notebook_mode) {
+                        if (current_slide == i && current_slide_changed) {
+                            ImGui::SetScrollY(ImGui::GetCursorPosY() - text_height);
+                            ImGui::SetNextWindowFocus();
+                            // Prevent the editor from reacting to key up/down
+                            ImGui::SetKeyOwner(ImGuiKey_DownArrow, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
+                            ImGui::SetKeyOwner(ImGuiKey_UpArrow, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
+                            current_slide_changed = false;
+                        }
+                        editor.RenderInline(slide_id, exception_what);
+                    } else {
+                        ImGui::SameLine();
+                        ImGui::SetCursorPosX(slide_size.x - ImGui::GetStyle().FramePadding.x * 2 -
+                                            ImGui::CalcTextSize(ICON_MDI_REFRESH).x -
+                                            ImGui::CalcTextSize(ICON_MDI_PENCIL).x);
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                        if (ImGui::Button(ICON_MDI_PENCIL))
+                            editor.ActivateTab(slide_id);
+                        ImGui::SameLine();
+                        if (ImGui::Button(ICON_MDI_REFRESH))
+                            animate = true;
+                        ImGui::PopStyleColor(1);
+                    }
+                    auto bottom_left = ImGui::GetCursorScreenPos();
+                    // The problem here is that the drawlist uses window coordinates.
+                    // We need to convert the coordinates to window coordinates.
+                    // We can do this by using the cursor position.
                     ImU32 color = ImGui::GetColorU32(ImGuiCol_Border);
                     if (editor.GetActiveTab() == slide_id) {
                         color = ImGui::GetColorU32(ImGuiCol_HeaderActive);
