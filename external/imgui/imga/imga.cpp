@@ -13,6 +13,10 @@
 
 #include <cstddef>
 
+#include <algorithm>
+#include <sstream>
+#include <vector>
+
 #define IMGA_ENABLE_LATEX_LABELS 1
 
 namespace ImPlot {
@@ -694,6 +698,27 @@ void Bivector(const char* label_id, ImPlotPoint center, double area, ImPlotItemF
 
         EndFade(bivector, s);
         EndItem();
+    }
+}
+
+void PlotPolyline(double *data, int num_points, const ImVec4 &col)
+{
+    std::vector<ImVec2> points;
+    // Convert pairs of coordinates to ImVec2 points and transform to screen coordinates
+    for (size_t j = 0; j < 2*num_points; j += 2) {
+        if (j + 1 < 2*num_points) {
+            ImPlotPoint plot_point(data[j], data[j + 1]);
+            ImVec2 screen_point = ImPlot::PlotToPixels(plot_point);
+            points.push_back(screen_point);
+        }
+    }
+
+    if (points.size() > 1) {
+        int col32 = ImGui::GetColorU32(col);
+        ImPlot::PushPlotClipRect();
+        //ImPlot::GetPlotDrawList()->AddConvexPolyFilled(points.data(), points.size(), ImGui::GetColorU32(ImVec4(col.x, col.y, col.z, col.w * 0.3f)));
+        ImPlot::GetPlotDrawList()->AddPolyline(points.data(), points.size(), col32, ImDrawFlags_Closed, 2.0f);
+        ImPlot::PopPlotClipRect();
     }
 }
 
