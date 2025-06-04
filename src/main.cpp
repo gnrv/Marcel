@@ -46,7 +46,19 @@
 #include "system/stdcapture.h"
 
 #ifndef USE_CLING
-#include "test/setup.cpp"
+#include "GL/gl.h"
+#include "GLFW/glfw3.h"
+#include "imgui.h"
+#include "imgui_latex.h"
+#include "implot.h"
+#include "implot3d.h"
+#include "cmath"
+#include "cstdio"
+#include "algorithm"
+#include "iostream"
+#include "imga.h"
+// Include setup slide - make sure you have a -I flag pointing to the presentation directory
+#include "setup.cpp"
 #endif
 
 #include <nfd.hpp>
@@ -54,6 +66,7 @@
 
 static float f_adjust = 0.0f;
 
+#ifdef USE_CLING
 std::string exprToString(clang::Expr* expr, const clang::ASTContext& context) {
     clang::LangOptions langOpts;
     langOpts.CPlusPlus = true;
@@ -150,6 +163,7 @@ std::string findResultExprFromExtractionFunction(cling::Transaction* tx) {
 
     return std::string();
 }
+#endif // USE_CLING
 
 void extractMarkers(SourceFile &source_file, const char *buf, size_t size, size_t offset = 0) {
     source_file.error_markers.clear();
@@ -265,7 +279,14 @@ void RenderMenu(Editor &editor, std::string &exception_what, TToggleFullscreen T
     TextEditor &active_editor = editor.GetActiveEditor();
 
     if (ImGui::BeginMenu("File")) {
-    if (ImGui::MenuItem("Open Folder", "Ctrl-O")) {
+    // Disable this menu item if we don't have access to the Cling interpreter.
+    if (ImGui::MenuItem("Open Folder", "Ctrl-O", false,
+#ifdef USE_CLING
+        true
+#else
+        false
+#endif
+    )) {
         // Open a folder dialog to select the presentation folder
         std::string path = OpenFolderDialog();
         if (!path.empty()) {
@@ -589,36 +610,46 @@ int main(int argc, char **argv) {
     };
 
 #ifndef USE_CLING
-    presentation->slides[0].function = []() {
-        #include "test/slide0.cpp"
-    };
-    presentation->slides[1].function = []() {
-        #include "test/slide1.cpp"
-    };
-    presentation->slides[2].function = []() {
-        #include "test/slide2.cpp"
-    };
-    presentation->slides[3].function = []() {
-        #include "test/slide3.cpp"
-    };
-    presentation->slides[4].function = []() {
-        #include "test/slide4.cpp"
-    };
-    presentation->slides[5].function = []() {
-        #include "test/slide5.cpp"
-    };
-    presentation->slides[6].function = []() {
-        #include "test/slide6.cpp"
-    };
-    presentation->slides[7].function = []() {
-        #include "test/slide7.cpp"
-    };
-    presentation->slides[8].function = []() {
-        #include "test/slide8.cpp"
-    };
-    presentation->slides[9].function = []() {
-        #include "test/slide9.cpp"
-    };
+    // The cpp file defines and returns an "update" lambda that will be called later, each frame, to render the ImGui
+    // interface for the slide.
+    std::vector<std::function<std::function<void()>()>> slide_loaders;
+    slide_loaders.push_back([]() -> std::function<void()> {
+        #include "slide0.cpp"
+    });
+    slide_loaders.push_back([]() -> std::function<void()> {
+        #include "slide1.cpp"
+    });
+    slide_loaders.push_back([]() -> std::function<void()> {
+        #include "slide2.cpp"
+    });
+    slide_loaders.push_back([]() -> std::function<void()> {
+        #include "slide3.cpp"
+    });
+    slide_loaders.push_back([]() -> std::function<void()> {
+        #include "slide4.cpp"
+    });
+    slide_loaders.push_back([]() -> std::function<void()> {
+        #include "slide5.cpp"
+    });
+    slide_loaders.push_back([]() -> std::function<void()> {
+        #include "slide6.cpp"
+    });
+    slide_loaders.push_back([]() -> std::function<void()> {
+        #include "slide7.cpp"
+    });
+    slide_loaders.push_back([]() -> std::function<void()> {
+        #include "slide8.cpp"
+    });
+    slide_loaders.push_back([]() -> std::function<void()> {
+        #include "slide9.cpp"
+    });
+
+    for (int i = 0; i < 10; ++i) {
+        auto& slide = presentation->slides[i];
+        if (i < slide_loaders.size()) {
+            slide.function = slide_loaders[i]();
+        }
+    }
 #endif
 
     // Main loop

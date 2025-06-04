@@ -9,6 +9,12 @@ set(CMAKE_CXX_STANDARD 20)
 # Cacheable configuration options
 option(USE_CLING "Use cling" OFF)
 
+# If you don't use Cling, define the path to the presentation here, so we can #include the source files
+# and build them at compile time instead of interpreting them using Cling at runtime
+if(NOT USE_CLING)
+include_directories("documents/test")
+endif()
+
 if(UNIX AND NOT APPLE)
     set(LINUX TRUE)
 endif()
@@ -54,6 +60,17 @@ find_package(glfw3 REQUIRED)
 # ---
 find_package(fmt REQUIRED)
 include_directories(${fmt_INCLUDE_DIRS})
+
+# ----
+# nlohmann/json
+# ----
+include_directories(external/nlohmann/json/include)
+
+# ----
+# stb_image
+# For some reason, included as <stb_image/stb_image.h> instead of <stb_image.h>
+# ----
+include_directories(external)
 
 # -----
 # CLING
