@@ -17,6 +17,15 @@
             "MIMode": "gdb",
             "setupCommands": [
                 {
+                    "description": "Enable debuginfod",
+                    "text": "set debuginfod enabled on",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Set debuginfod URL explicitly",
+                    "text": "set debuginfod urls https://debuginfod.ubuntu.com"
+                },
+                {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
                     "ignoreFailures": true
@@ -25,6 +34,15 @@
                     "description": "Set Disassembly Flavor to Intel",
                     "text": "-gdb-set disassembly-flavor intel",
                     "ignoreFailures": true
+                },
+                {
+                    // For this to work, you need to
+                    // cd ${workspaceFolder}/build
+                    // mkdir src
+                    // apt source libglfw3
+                    "description": "Set path substitution for GLFW source",
+                    "text": "set substitute-path ./build-x11/src ${workspaceFolder}/build/src/glfw3-3.3.6",
+                    "ignoreFailures": false
                 }
             ]
         }
