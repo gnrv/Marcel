@@ -455,10 +455,10 @@ struct ImGaBase {
     double StartTime{ 0 };
 };
 
-struct ImVector : ImGaBase {
+struct ImGaVector : ImGaBase {
 };
 
-ImPool<ImVector> g_Vectors;
+ImPool<ImGaVector> g_Vectors;
 
 double BeginFade(ImGaBase *item) {
     ImGuiContext& g = *GImGui;
@@ -541,7 +541,7 @@ void PlotLabel(ImGuiID id, const char* label_id, double x, double y, const ImVec
 void Vector(const char* label_id, ImPlotPoint start, ImPlotPoint end, ImPlotItemFlags flags) {
     if (BeginItemEx(label_id, VectorFitter(start, end), flags, ImPlotCol_Line)) {
         const ImGuiID id = ImGui::GetID(label_id);
-        ImVector *vector = g_Vectors.GetOrAddByKey(id);
+        ImGaVector *vector = g_Vectors.GetOrAddByKey(id);
         double s = BeginFade(vector);
         RenderVector(start, end);
         if (!ImHasFlag(flags, ImPlotItemFlags_NoLabel)) {
@@ -720,6 +720,18 @@ void PlotPolyline(double *data, int num_points, const ImVec4 &col)
         ImPlot::GetPlotDrawList()->AddPolyline(points.data(), points.size(), col32, ImDrawFlags_Closed, 2.0f);
         ImPlot::PopPlotClipRect();
     }
+}
+
+ImVector<double>& GetHistogramBinCenters()
+{
+    ImPlotContext& gp = *GImPlot;
+    return gp.TempDouble1;
+}
+
+ImVector<double>& GetHistogramBinCounts()
+{
+    ImPlotContext& gp = *GImPlot;
+    return gp.TempDouble2;
 }
 
 }

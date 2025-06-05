@@ -31,4 +31,7 @@ namespace ImPlot {
     void Bivector(const char* label_id, ImPlotPoint start, ImPlotPoint mid, ImPlotPoint end, ImPlotItemFlags flags = ImPlotItemFlags_None);
     void Bivector(const char* label_id, ImPlotPoint center, double area, ImPlotItemFlags flags = ImPlotItemFlags_None);
     void PlotPolyline(double *data, int num_points, const ImVec4 &col);
+    // Get data from last PlotHistogram call.
+    ImVector<double>& GetHistogramBinCenters();
+    ImVector<double>& GetHistogramBinCounts();
 }
