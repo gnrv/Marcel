@@ -197,13 +197,14 @@ struct MyAppSettings {
     GLFWwindow* window = nullptr;
     int window_x = 100, window_y = 100, window_w = 1280, window_h = 720;
     std::string current_folder{ getExecutablePath() + "/../documents/test" };
+    bool notebook_mode{ true }; // Start in notebook mode
 };
-static MyAppSettings g_MyAppSettings;
+static MyAppSettings g_settings;
 
 // Called when a [MyApp][main] section is found
 static void* MySettings_ReadOpen(ImGuiContext*, ImGuiSettingsHandler*, const char* name) {
     if (strcmp(name, "main") == 0)
-        return &g_MyAppSettings;
+        return &g_settings;
     return nullptr;
 }
 
@@ -229,12 +230,12 @@ static void MySettings_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void* entr
             glfwGetMonitorWorkarea(monitor, &mx, &my, &mw, &mh);
 
             // Clamp window size
-            g_MyAppSettings.window_w = std::min(g_MyAppSettings.window_w, mw);
-            g_MyAppSettings.window_h = std::min(g_MyAppSettings.window_h, mh);
+            g_settings.window_w = std::min(g_settings.window_w, mw);
+            g_settings.window_h = std::min(g_settings.window_h, mh);
 
             // Clamp window position (optional, to keep window on screen)
-            g_MyAppSettings.window_x = std::max(mx, std::min(g_MyAppSettings.window_x, mx + mw - g_MyAppSettings.window_w));
-            g_MyAppSettings.window_y = std::max(my, std::min(g_MyAppSettings.window_y, my + mh - g_MyAppSettings.window_h));
+            g_settings.window_x = std::max(mx, std::min(g_settings.window_x, mx + mw - g_settings.window_w));
+            g_settings.window_y = std::max(my, std::min(g_settings.window_y, my + mh - g_settings.window_h));
 
             glfwSetWindowPos(settings->window, settings->window_x, settings->window_y);
             glfwSetWindowSize(settings->window, settings->window_w, settings->window_h);
@@ -249,8 +250,11 @@ static void MySettings_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void* entr
         }
 
         // We don't apply these settings here, the app will load the folder when it starts.
-    }
-    else {
+    } else if (strcmp(line, "NotebookMode=1") == 0) {
+        settings->notebook_mode = true;
+    } else if (strcmp(line, "NotebookMode=0") == 0) {
+        settings->notebook_mode = false;
+    } else {
         std::cerr << "Unknown setting line: " << line << std::endl;
     }
 }
@@ -258,16 +262,17 @@ static void MySettings_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void* entr
 // Called when saving the ini file
 static void MySettings_WriteAll(ImGuiContext*, ImGuiSettingsHandler*, ImGuiTextBuffer* out_buf) {
     out_buf->appendf("[MyApp][main]\n");
-    out_buf->appendf("Window=%d,%d,%d,%d\n", g_MyAppSettings.window_x, g_MyAppSettings.window_y, g_MyAppSettings.window_w, g_MyAppSettings.window_h);
-    out_buf->appendf("CurrentFolder=%s\n", g_MyAppSettings.current_folder.c_str());
+    out_buf->appendf("Window=%d,%d,%d,%d\n", g_settings.window_x, g_settings.window_y, g_settings.window_w, g_settings.window_h);
+    out_buf->appendf("CurrentFolder=%s\n", g_settings.current_folder.c_str());
+    out_buf->appendf("NotebookMode=%d\n", g_settings.notebook_mode ? 1 : 0);
 }
 
 std::string OpenFolderDialog() {
     NFD::UniquePath outPath;
-    GLFWwindow* glfwParentWindow = g_MyAppSettings.window;
+    GLFWwindow* glfwParentWindow = g_settings.window;
     nfdwindowhandle_t parentWindow;
     NFD_GetNativeWindowFromGLFWWindow(glfwParentWindow, &parentWindow);
-    nfdresult_t result = NFD::PickFolder(outPath, g_MyAppSettings.current_folder.c_str(), parentWindow);
+    nfdresult_t result = NFD::PickFolder(outPath, g_settings.current_folder.c_str(), parentWindow);
     if (result == NFD_OKAY) {
         return std::string(outPath.get());
     }
@@ -344,6 +349,8 @@ if (ImGui::BeginMenu("View")) {
     if (ImGui::MenuItem("Start Presentation", "F5")) {
     }
     if (ImGui::MenuItem("Toggle Notebook View", "F10")) {
+        g_settings.notebook_mode = !g_settings.notebook_mode;
+        ImGui::SaveIniSettingsToDisk(ImGui::GetIO().IniFilename);
     }
     if (ImGui::MenuItem("Toggle Full Screen", "F11")) {
         ToggleFullscreen();
@@ -480,9 +487,9 @@ int main(int argc, char **argv) {
                                           "Dear ImGui GLFW+OpenGL3 example", NULL, NULL);
     if (window == NULL)
         return 1;
-    g_MyAppSettings.window = window;
-    g_MyAppSettings.window_w = window_size.x;
-    g_MyAppSettings.window_h = window_size.y;
+    g_settings.window = window;
+    g_settings.window_w = window_size.x;
+    g_settings.window_h = window_size.y;
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); // Enable vsync
 
@@ -569,8 +576,8 @@ int main(int argc, char **argv) {
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
     //ImVec4 clear_color = ImVec4(0.f, 0.f, 0.f, 1.00f);
 
-    std::filesystem::current_path(g_MyAppSettings.current_folder);
-    std::shared_ptr<Presentation> presentation = std::make_shared<Presentation>(g_MyAppSettings.current_folder);
+    std::filesystem::current_path(g_settings.current_folder);
+    std::shared_ptr<Presentation> presentation = std::make_shared<Presentation>(g_settings.current_folder);
     Editor editor(presentation);
     editor.SetMonoFont(fira_mono);
 
@@ -598,16 +605,16 @@ int main(int argc, char **argv) {
             const GLFWvidmode* mode = glfwGetVideoMode(monitor);
             glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
         };
-        g_MyAppSettings.window_w = w;
-        g_MyAppSettings.window_h = h;
+        g_settings.window_w = w;
+        g_settings.window_h = h;
     };
-    g_MyAppSettings.ToggleFullscreen = ToggleFullscreen;
+    g_settings.ToggleFullscreen = ToggleFullscreen;
 
     auto OpenFolder = [&editor, &presentation](const std::string& path) {
         std::filesystem::current_path(path);
         presentation = std::make_shared<Presentation>(path);
         editor.SetPresentation(presentation);
-        g_MyAppSettings.current_folder = path;
+        g_settings.current_folder = path;
     };
 
 #ifndef USE_CLING
@@ -669,7 +676,6 @@ int main(int argc, char **argv) {
         }
 
         static bool presentation_mode = false;
-        static bool notebook_mode = true; // Start in notebook mode
         static int current_slide = 0;
         static bool current_slide_changed = true;
         if (ImGui::IsKeyPressed(ImGuiKey_F5)) {
@@ -680,7 +686,8 @@ int main(int argc, char **argv) {
             }
         }
         if (ImGui::IsKeyPressed(ImGuiKey_F10)) {
-            notebook_mode = !notebook_mode;
+            g_settings.notebook_mode = !g_settings.notebook_mode;
+            ImGui::SaveIniSettingsToDisk(io.IniFilename);
             current_slide_changed = true;
         }
 
@@ -699,7 +706,7 @@ int main(int argc, char **argv) {
                     ImGuiWindowFlags_NoSavedSettings;
 
         // 1. Code window
-        if (!presentation_mode && !notebook_mode) {
+        if (!presentation_mode && !g_settings.notebook_mode) {
             ImVec2 code_window_size{ width/2, height };
             ImGui::SetNextWindowSize(code_window_size);
             ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -755,9 +762,9 @@ int main(int argc, char **argv) {
 #endif
 
         // 2. Presentation window
-        float presentation_width = (presentation_mode || notebook_mode) ? width : width/2;
+        float presentation_width = (presentation_mode || g_settings.notebook_mode) ? width : width/2;
         ImGui::SetNextWindowSize(ImVec2(presentation_width, height));
-        ImGui::SetNextWindowPos(ImVec2((presentation_mode || notebook_mode) ? 0 : presentation_width, 0));
+        ImGui::SetNextWindowPos(ImVec2((presentation_mode || g_settings.notebook_mode) ? 0 : presentation_width, 0));
         // Get rid of horizontal padding
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -791,7 +798,7 @@ int main(int argc, char **argv) {
             }
 
             bool allow_keyboard_scrolling = true;
-            if (notebook_mode && !presentation_mode) {
+            if (g_settings.notebook_mode && !presentation_mode) {
                 auto shift = io.KeyShift;
                 auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
                 auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
@@ -835,7 +842,7 @@ int main(int argc, char **argv) {
             // Before all the slides, the "setup" placeholder
             // Calculate the height of one row of ImGui::Text
             if (!presentation_mode) {
-                if (notebook_mode) {
+                if (g_settings.notebook_mode) {
                     auto top_left = ImGui::GetCursorScreenPos();
                     ImGui::Text("Setup %s", presentation->setup.dirty ? "*" : "");
 
@@ -868,7 +875,7 @@ int main(int argc, char **argv) {
                 ImGui::Text("Slide %d %s", i, presentation->slides[i].dirty ? "*" : "");
                 if (!presentation_mode) {
                     std::string slide_id = fmt::format("slide{}", i);
-                    if (notebook_mode) {
+                    if (g_settings.notebook_mode) {
                         if (current_slide == i && current_slide_changed) {
                             ImGui::SetScrollY(ImGui::GetCursorPosY() - text_height);
                             ImGui::SetNextWindowFocus();
@@ -1091,7 +1098,7 @@ int main(int argc, char **argv) {
         ImGui::PopStyleVar(5);
 
         // 3. Overlays
-        if (notebook_mode) {
+        if (g_settings.notebook_mode) {
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
             float width = ImGui::GetStyle().FramePadding.x * 2 +
                           ImGui::CalcTextSize(ICON_MDI_MENU).x;
@@ -1211,9 +1218,9 @@ int main(int argc, char **argv) {
     if (!glfwGetWindowMonitor(window)) {
         int x, y;
         glfwGetWindowPos(window, &x, &y);
-        glfwGetWindowSize(window, &g_MyAppSettings.window_w, &g_MyAppSettings.window_h);
-        g_MyAppSettings.window_x = x;
-        g_MyAppSettings.window_y = y;
+        glfwGetWindowSize(window, &g_settings.window_w, &g_settings.window_h);
+        g_settings.window_x = x;
+        g_settings.window_y = y;
     }
 
 
