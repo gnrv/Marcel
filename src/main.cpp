@@ -798,10 +798,10 @@ int main(int argc, char **argv) {
             }
 
             bool allow_keyboard_scrolling = true;
+            auto shift = io.KeyShift;
+            auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
+            auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
             if (g_settings.notebook_mode && !presentation_mode) {
-                auto shift = io.KeyShift;
-                auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
-                auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
 
                 allow_keyboard_scrolling = (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && editor.IsCursorAtFirstLine()) ||
                                            (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && editor.IsCursorAtLastLine());
@@ -831,6 +831,37 @@ int main(int argc, char **argv) {
                         current_slide_changed = true;
                     }
                 }
+            }
+
+            if (ctrl && ImGui::IsKeyPressed(ImGuiKey_PageDown)) {
+                if (g_settings.notebook_mode) {
+                    int next_slide = current_slide + 1;
+                    if (next_slide >= (int)presentation->slides.size())
+                        next_slide = presentation->slides.size() - 1;
+                    if (next_slide != current_slide) {
+                        current_slide = next_slide;
+                        current_slide_changed = true;
+                    }
+                } else {
+                    editor.ActivateNextTab();
+                }
+                ImGui::SetKeyOwner(ImGuiKey_PageDown, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
+            }
+
+            if (ctrl && ImGui::IsKeyPressed(ImGuiKey_PageUp)) {
+                if (g_settings.notebook_mode) {
+                    int next_slide = current_slide - 1;
+                    int limit = presentation_mode ? 0 : -1;
+                    if (next_slide < limit)
+                        next_slide = limit;
+                    if (next_slide != current_slide) {
+                        current_slide = next_slide;
+                        current_slide_changed = true;
+                    }
+                } else {
+                    editor.ActivatePreviousTab();
+                }
+                ImGui::SetKeyOwner(ImGuiKey_PageUp, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
             }
 
             if (presentation_mode) {

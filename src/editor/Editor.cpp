@@ -38,6 +38,36 @@ void Editor::ReloadFile(const std::string& id, std::string &exception_what) {
     }
 }
 
+void Editor::ActivateNextTab()
+{
+    if (active_tab == "setup") {
+        if (presentation->slides.empty()) return;
+        activate_tab = fmt::format("slide{}", 0);
+    } else {
+        int current_index = std::stoi(active_tab.substr(5));
+        if (current_index + 1 < presentation->slides.size()) {
+            activate_tab = fmt::format("slide{}", current_index + 1);
+        } else {
+            activate_tab = "setup"; // Wrap around to setup
+        }
+    }
+}
+
+void Editor::ActivatePreviousTab()
+{
+    if (active_tab == "setup") {
+        if (presentation->slides.empty()) return;
+        activate_tab = fmt::format("slide{}", presentation->slides.size() - 1);
+    } else {
+        int current_index = std::stoi(active_tab.substr(5));
+        if (current_index > 0) {
+            activate_tab = fmt::format("slide{}", current_index - 1);
+        } else {
+            activate_tab = "setup"; // Wrap around to setup
+        }
+    }
+}
+
 void Editor::Render(std::string &exception_what) {
     ImGuiIO& io = ImGui::GetIO();
 

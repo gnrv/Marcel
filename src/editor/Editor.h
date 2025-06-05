@@ -61,6 +61,8 @@ public:
         }
         activate_tab = tab;
     }
+    void ActivateNextTab();
+    void ActivatePreviousTab();
     std::string GetActiveTab() const {
         return active_tab;
     }
