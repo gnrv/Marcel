@@ -42,6 +42,10 @@ class CaptureOutput {
 
     std::function<void(const char*, size_t)> callback;
 
+    std::thread readerThread;
+    std::atomic<bool> stopReading{false};
+    std::string accumulatedOutput;
+
 public:
     CaptureOutput(FILE* stream_, int fd_, std::function<void(const char*, size_t)> callback_)
         : stream(stream_)
@@ -59,35 +63,34 @@ public:
 #ifndef _MSC_VER
         secure_close(pipes[WRITE]);
 #endif
+
+        // Start background reader
+        try {
+            readerThread = std::thread([this]() { reader(true /* isBackground */); });
+        } catch (...) {
+            // Thread creation failed
+        }
     }
 
     ~CaptureOutput()
     {
+        // Signal reader to stop
+        stopReading = true;
+
         // End capturing.
         secure_dup2(streamOld, fd);
 
-        const int bufSize = 1025;
-        char buf[bufSize];
-        int bytesRead = 0;
-        bool fd_blocked(false);
-        do {
-            bytesRead = 0;
-            fd_blocked = false;
-#ifdef _MSC_VER
-            if (!eof(pipes[READ]))
-                bytesRead = read(pipes[READ], buf, bufSize - 1);
-#else
-            bytesRead = read(pipes[READ], buf, bufSize - 1);
-#endif
-            if (bytesRead > 0) {
-                buf[bytesRead] = 0;
-                callback(buf, bytesRead);
-            } else if (bytesRead < 0) {
-                fd_blocked = (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR);
-                if (fd_blocked)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
-        } while (fd_blocked || bytesRead == (bufSize - 1));
+        // Wait for reader thread to finish ,if it was ever started
+        // else call reader directly
+        if (readerThread.joinable())
+            readerThread.join();
+        else
+            reader(false /* isBackground */);
+
+        // Now safely call the callback from the main thread
+        if (!accumulatedOutput.empty()) {
+            callback(accumulatedOutput.c_str(), accumulatedOutput.size());
+        }
 
         secure_close(streamOld);
         secure_close(pipes[READ]);
@@ -97,6 +100,57 @@ public:
     }
 
 private:
+    void reader(bool isBackground)
+    {
+        const int bufSize = 1025;
+        char buf[bufSize];
+        int bytesRead = 0;
+
+        while (!stopReading) {
+            bytesRead = 0;
+            bool fd_blocked = false;
+
+#ifdef _MSC_VER
+            if (!eof(pipes[READ]))
+                bytesRead = read(pipes[READ], buf, bufSize - 1);
+#else
+            bytesRead = read(pipes[READ], buf, bufSize - 1);
+#endif
+
+            if (bytesRead > 0) {
+                buf[bytesRead] = 0;
+                accumulatedOutput.append(buf, bytesRead);
+                write(streamOld, buf, bytesRead); // Echo to original stream
+            } else if (bytesRead < 0) {
+                fd_blocked = (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR);
+                if (fd_blocked) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                } else {
+                    break; // Real error, exit thread
+                }
+            } else {
+                // bytesRead == 0, EOF reached
+                break;
+            }
+        }
+
+        // Final drain of any remaining data
+        do {
+            bytesRead = 0;
+#ifdef _MSC_VER
+            if (!eof(pipes[READ]))
+                bytesRead = read(pipes[READ], buf, bufSize - 1);
+#else
+            bytesRead = read(pipes[READ], buf, bufSize - 1);
+#endif
+            if (bytesRead > 0) {
+                buf[bytesRead] = 0;
+                accumulatedOutput.append(buf, bytesRead);
+                write(streamOld, buf, bytesRead); // Echo to original stream
+            }
+        } while (bytesRead > 0);
+    }
+
     int secure_dup(int src)
     {
         int ret = -1;

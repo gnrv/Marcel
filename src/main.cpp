@@ -188,8 +188,6 @@ void extractMarkers(SourceFile &source_file, const char *buf, size_t size, size_
     // For now, strip out the ansi color codes
     buf_str = std::regex_replace(buf_str, std::regex("\033\\[[0-9;]*m"), "");
     source_file.error_markers.emplace(line_no, buf_str);
-
-    std::cerr << buf_str << std::endl;
 }
 
 struct MyAppSettings {
