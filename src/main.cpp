@@ -613,6 +613,7 @@ int main(int argc, char **argv) {
         presentation = std::make_shared<Presentation>(path);
         editor.SetPresentation(presentation);
         g_settings.current_folder = path;
+        ImGui::SaveIniSettingsToDisk(ImGui::GetIO().IniFilename);
     };
 
 #ifndef USE_CLING
