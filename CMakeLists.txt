@@ -1,13 +1,11 @@
-if(MSVC)
-    cmake_minimum_required(VERSION 3.21)
-else()
-    cmake_minimum_required(VERSION 3.17)
-endif()
+# On Ubuntu, use https://apt.kitware.com to get a recent CMake version
+cmake_minimum_required(VERSION 3.27)
 
 set(CMAKE_CXX_STANDARD 20)
 
 # Cacheable configuration options
 option(USE_CLING "Use cling" OFF)
+option(USE_CUDA "Use CUDA" OFF)
 
 # If you don't use Cling, define the path to the presentation here, so we can #include the source files
 # and build them at compile time instead of interpreting them using Cling at runtime
@@ -20,7 +18,9 @@ if(UNIX AND NOT APPLE)
 endif()
 
 # Set project name
-project(quicktex)
+project(quicktex LANGUAGES CXX)
+
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
@@ -134,6 +134,24 @@ if(USE_CLING)
     target_include_directories(${PROJECT_NAME} PUBLIC ${CLANG_INCLUDE_DIRS})
     target_include_directories(${PROJECT_NAME} PUBLIC ${CLING_INCLUDE_DIRS})
     target_compile_definitions(${PROJECT_NAME} PRIVATE USE_CLING=1)
+    if(USE_CUDA)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE USE_CUDA=1)
+        # If we use CUDA, we need to link against the CUDA libraries
+        # Cling requires CUDA 11 exactly
+        # On Linux, there should be a symlink /usr/local/cuda-11 if you have CUDA 11 installed
+        # cmake -DCUDAToolkit_ROOT=/usr/local/cuda-11 ...
+        # You may have to rm build/CMakeCache.txt if you have found CUDA-12 at some point
+        # because a stale CUDAToolkit_BIN_DIR will cause CMake to find CUDA-12 again and again
+        find_package(CUDAToolkit 11 EXACT REQUIRED)
+        if(CUDAToolkit_FOUND)
+            message(STATUS "Found CUDAToolkit: ${CUDAToolkit_VERSION}")
+        else()
+            message(FATAL_ERROR "CUDA Toolkit not found, but USE_CUDA is set to ON")
+        endif()
+
+        target_compile_definitions(${PROJECT_NAME} PRIVATE CUDA_PATH="${CUDAToolkit_ROOT}")
+        target_compile_definitions(${PROJECT_NAME} PRIVATE CUDA_LIB_DIR="${CUDAToolkit_LIBRARY_DIR}")
+    endif()
 
     # Cling JITted code needs to be able to resolve symbols from its own executable
     # OR we can turn off value printing in cling

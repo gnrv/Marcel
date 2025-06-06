@@ -37,6 +37,7 @@
 #include "cling/Interpreter/Interpreter.h"
 #include "cling/Interpreter/Transaction.h"
 #include "cling/Interpreter/Value.h"
+#include "cling/Interpreter/IncrementalCUDADeviceCompiler.h"
 #include "cling/Utils/Output.h"
 #include "cling/MetaProcessor/InputValidator.h"
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
@@ -367,6 +368,14 @@ int main(int argc, char **argv) {
         new_argv.push_back(argv[i]);
     }
     //new_argv.push_back("--ptrcheck");
+#ifdef USE_CUDA
+    new_argv.push_back("-x");
+    new_argv.push_back("cuda");
+    new_argv.push_back("--cuda-path=" CUDA_PATH);
+    new_argv.push_back("-L");
+    new_argv.push_back(CUDA_LIB_DIR);
+#endif
+
     argc = new_argv.size();
     cling::Interpreter interp(argc, new_argv.data());
 
@@ -413,6 +422,17 @@ int main(int argc, char **argv) {
 
     // Tell cling to allow re-definitions
     interp.getRuntimeOptions().AllowRedefinition = true;
+#ifdef USE_CUDA
+    auto ptx_interp = interp.getCUDACompiler()->getPTXInterpreter();
+    ptx_interp->getRuntimeOptions().AllowRedefinition = true;
+    for (const auto& header : headers) {
+        auto result = ptx_interp->loadHeader(header);
+        if (result != cling::Interpreter::kSuccess) {
+            std::cerr << "Failed to load header: " << result << std::endl;
+            exit(1);
+        }
+    }
+#endif
 #else
     (void)argc;
     (void)argv;
