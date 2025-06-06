@@ -790,6 +790,38 @@ int main(int argc, char **argv) {
         float text_height = ImGui::GetTextLineHeightWithSpacing();
         float setup_spacer_height = slide_size.y/2 - text_height;
 
+        auto NextSlide = [&]() {
+            int next_slide = current_slide + 1;
+            if (next_slide >= (int)presentation->slides.size())
+                next_slide = presentation->slides.size() - 1;
+            if (next_slide != current_slide) {
+                current_slide = next_slide;
+                current_slide_changed = true;
+            }
+        };
+        auto PreviousSlide = [&]() {
+            int next_slide = current_slide - 1;
+            int limit = presentation_mode ? 0 : -1;
+            if (next_slide < limit)
+                next_slide = limit;
+            if (next_slide != current_slide) {
+                current_slide = next_slide;
+                current_slide_changed = true;
+            }
+        };
+
+        // To get zero lag in presentation mode, use SetNextWindowScroll.
+        if (presentation_mode) {
+            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
+                NextSlide();
+            }
+
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
+                PreviousSlide();
+            }
+            ImGui::SetNextWindowScroll(ImVec2(-1, text_height + current_slide * (slide_size.y + 2*text_height)));
+        }
+
         if (ImGui::Begin("Presentation", 0, flags)) {
             if (active_tab != editor.GetActiveTab()) {
                 // If the active tab changed, we need to scroll to the top of the new tab
@@ -797,7 +829,8 @@ int main(int argc, char **argv) {
                 if (current_slide < -1) current_slide = -1;
             }
 
-            bool allow_keyboard_scrolling = true;
+            // In presentation mode, scrolling was done before the Begin() call to reduce lag.
+            bool allow_keyboard_scrolling = !presentation_mode;
             auto shift = io.KeyShift;
             auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
             auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
@@ -812,60 +845,28 @@ int main(int argc, char **argv) {
             }
             if (allow_keyboard_scrolling && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
                 if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
-                    int next_slide = current_slide + 1;
-                    if (next_slide >= (int)presentation->slides.size())
-                        next_slide = presentation->slides.size() - 1;
-                    if (next_slide != current_slide) {
-                        current_slide = next_slide;
-                        current_slide_changed = true;
-                    }
+                    NextSlide();
                 }
 
                 if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
-                    int next_slide = current_slide - 1;
-                    int limit = presentation_mode ? 0 : -1;
-                    if (next_slide < limit)
-                        next_slide = limit;
-                    if (next_slide != current_slide) {
-                        current_slide = next_slide;
-                        current_slide_changed = true;
-                    }
+                    PreviousSlide();
                 }
             }
 
             if (ctrl && ImGui::IsKeyPressed(ImGuiKey_PageDown)) {
-                if (g_settings.notebook_mode) {
-                    int next_slide = current_slide + 1;
-                    if (next_slide >= (int)presentation->slides.size())
-                        next_slide = presentation->slides.size() - 1;
-                    if (next_slide != current_slide) {
-                        current_slide = next_slide;
-                        current_slide_changed = true;
-                    }
-                } else {
+                if (g_settings.notebook_mode)
+                    NextSlide();
+                else
                     editor.ActivateNextTab();
-                }
                 ImGui::SetKeyOwner(ImGuiKey_PageDown, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
             }
 
             if (ctrl && ImGui::IsKeyPressed(ImGuiKey_PageUp)) {
-                if (g_settings.notebook_mode) {
-                    int next_slide = current_slide - 1;
-                    int limit = presentation_mode ? 0 : -1;
-                    if (next_slide < limit)
-                        next_slide = limit;
-                    if (next_slide != current_slide) {
-                        current_slide = next_slide;
-                        current_slide_changed = true;
-                    }
-                } else {
+                if (g_settings.notebook_mode)
+                    PreviousSlide();
+                else
                     editor.ActivatePreviousTab();
-                }
                 ImGui::SetKeyOwner(ImGuiKey_PageUp, ImGui::GetItemID(), ImGuiInputFlags_LockThisFrame);
-            }
-
-            if (presentation_mode) {
-                ImGui::SetScrollY(text_height + current_slide * (slide_size.y + 2*text_height));
             }
 
             active_tab = editor.GetActiveTab();
@@ -900,7 +901,7 @@ int main(int argc, char **argv) {
                 ImGui::EndChild();
             }
             for (int i = 0; i < 10; i++) {
-                bool animate = false;
+                bool animate = current_slide_changed && presentation_mode && (i == current_slide);
                 ImGui::PushID(i);
                 auto top_left = ImGui::GetCursorScreenPos();
                 ImGui::Text("Slide %d %s", i, presentation->slides[i].dirty ? "*" : "");
@@ -1123,6 +1124,7 @@ int main(int argc, char **argv) {
             // Add a spacer to allow the last slide to be scrolled into view and centered vertically
             ImGui::BeginChild("Final Spacer", ImVec2(slide_size.x, slide_size.y/2 - text_height), false);
             ImGui::EndChild();
+            current_slide_changed = false;
         } // "Presentation" window
         ImGui::End();
         ImGui::PopStyleColor();
