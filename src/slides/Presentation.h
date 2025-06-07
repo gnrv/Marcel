@@ -34,6 +34,7 @@ public:
     std::string exception;
     std::map<int, std::string> error_markers;
     size_t lines{ 0 };
+    bool is_cuda{ false }; // Is this a CUDA file?
 
     SourceFile(std::filesystem::path);
 

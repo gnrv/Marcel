@@ -266,7 +266,18 @@ static void MySettings_WriteAll(ImGuiContext*, ImGuiSettingsHandler*, ImGuiTextB
     out_buf->appendf("NotebookMode=%d\n", g_settings.notebook_mode ? 1 : 0);
 }
 
+static bool nfd_initialized = false;
+
 std::string OpenFolderDialog() {
+    if (!nfd_initialized) {
+        nfd_initialized = true;
+        auto start = std::chrono::high_resolution_clock::now();
+        NFD::Init();
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        printf("Native file dialog init took: %ld ms\n", duration.count());
+    }
+
     NFD::UniquePath outPath;
     GLFWwindow* glfwParentWindow = g_settings.window;
     nfdwindowhandle_t parentWindow;
@@ -376,8 +387,12 @@ int main(int argc, char **argv) {
     new_argv.push_back(CUDA_LIB_DIR);
 #endif
 
+    auto start = std::chrono::high_resolution_clock::now();
     argc = new_argv.size();
     cling::Interpreter interp(argc, new_argv.data());
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    printf("Interpreter construction took: %ld ms\n", duration.count());
 
     // The interpreter has so much internal state going on in order to support incremental parsing,
     // I dont' dare to use it for syntax checking even. Let's create another interpreter for that.
@@ -412,6 +427,7 @@ int main(int argc, char **argv) {
         "iostream",
         "imga.h"
     };
+    start = std::chrono::high_resolution_clock::now();
     for (const auto& header : headers) {
         auto result = interp.loadHeader(header);
         if (result != cling::Interpreter::kSuccess) {
@@ -419,10 +435,14 @@ int main(int argc, char **argv) {
             exit(1);
         }
     }
+    end = std::chrono::high_resolution_clock::now();
+    duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    printf("Loading headers took: %ld ms\n", duration.count());
 
     // Tell cling to allow re-definitions
     interp.getRuntimeOptions().AllowRedefinition = true;
 #ifdef USE_CUDA
+    start = std::chrono::high_resolution_clock::now();
     auto ptx_interp = interp.getCUDACompiler()->getPTXInterpreter();
     ptx_interp->getRuntimeOptions().AllowRedefinition = true;
     for (const auto& header : headers) {
@@ -432,6 +452,9 @@ int main(int argc, char **argv) {
             exit(1);
         }
     }
+    end = std::chrono::high_resolution_clock::now();
+    duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    printf("Loading headers into PTX interpreter took: %ld ms\n", duration.count());
 #endif
 #else
     (void)argc;
@@ -439,13 +462,15 @@ int main(int argc, char **argv) {
 #endif
 
     // Setup window
+    start = std::chrono::high_resolution_clock::now();
     glfwSetErrorCallback([](int error, const char* description) {
         fprintf(stderr, "Glfw Error %d: %s\n", error, description);
     });
     if (!glfwInit())
         return 1;
-
-    NFD::Init();
+    end = std::chrono::high_resolution_clock::now();
+    duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    printf("GLFW init took: %ld ms\n", duration.count());
 
     // GL 3.0 + GLSL 130
     const char* glsl_version = "#version 130";
@@ -596,6 +621,12 @@ int main(int argc, char **argv) {
 
     std::filesystem::current_path(g_settings.current_folder);
     std::shared_ptr<Presentation> presentation = std::make_shared<Presentation>(g_settings.current_folder);
+#ifdef USE_CUDA
+    presentation->setup.is_cuda = true;
+    for (auto& slide : presentation->slides) {
+        slide.is_cuda = true;
+    }
+#endif
     Editor editor(presentation);
     editor.SetMonoFont(fira_mono);
 
@@ -765,6 +796,7 @@ int main(int argc, char **argv) {
                 extractMarkers(setup, buf, szbuf);
             });
             cling::Value V;
+            interp.getOptions().CompilerOpts.CUDAHost = setup.is_cuda;
             auto result = interp.process(setup.text(), &V, nullptr, true /* disableValuePrinting */);
             setup.compiled = true;
             setup.syntax_error = result != cling::Interpreter::kSuccess;
@@ -989,6 +1021,7 @@ int main(int argc, char **argv) {
                     cling::Value V;
                     cling::Transaction *transaction = nullptr;
                     //auto result = interp.process("void (*update)(ImVec2 slide_size) = [](ImVec2 slide_size){" + slide_src.text() + ";}; update", &V, &transaction, true /* disableValuePrinting */);
+                    interp.getOptions().CompilerOpts.CUDAHost = slide_src.is_cuda;
                     auto result = interp.process(slide_src.text(), &V, &transaction, true /* disableValuePrinting */);
 
                     slide_src.compiled = true;
@@ -1283,7 +1316,8 @@ int main(int argc, char **argv) {
     ImPlot::DestroyContext();
     ImGui::DestroyContext();
 
-    NFD::Quit();
+    if (nfd_initialized)
+        NFD::Quit();
 
     glfwDestroyWindow(window);
     glfwTerminate();

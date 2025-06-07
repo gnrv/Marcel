@@ -72,6 +72,7 @@ void Editor::Render(std::string &exception_what) {
     ImGuiIO& io = ImGui::GetIO();
 
     TextEditor *rendered_editor = nullptr;
+    SourceFile *active_source_file = nullptr;
     if (ImGui::BeginTabBar("MyTabBar")) {
         std::string label_and_id = presentation->setup.path.filename().string() + "###setup";
         ImGuiTabItemFlags flags = 0;
@@ -83,6 +84,7 @@ void Editor::Render(std::string &exception_what) {
             flags |= ImGuiTabItemFlags_UnsavedDocument;
         if (ImGui::BeginTabItem(label_and_id.c_str(), nullptr, flags)) {
             active_tab = "setup";
+            active_source_file = &presentation->setup;
             if (activate_tab == active_tab)
                 activate_tab.clear();
             ImGui::PushFont(mono_font);
@@ -106,6 +108,7 @@ void Editor::Render(std::string &exception_what) {
         }
         for (auto &slide : presentation->slides) {
             int i = presentation->indexOf(slide);
+            active_source_file = &slide;
             std::string slide_id = fmt::format("slide{}", i);
             std::string label_and_id = slide.path.filename().string() + "###" + slide_id;
             ImGuiTabItemFlags flags = 0;
@@ -145,6 +148,27 @@ void Editor::Render(std::string &exception_what) {
         rendered_editor ? rendered_editor->GetTotalLines() : 0,
         rendered_editor ? (rendered_editor->IsOverwrite() ? "Ovr" : "Ins") : "---",
         rendered_editor ? (rendered_editor->CanUndo() ? "*" : " ") : "-");
+
+    if (active_source_file) {
+        ImGui::SameLine();
+        const char* languages[] = {"C++", "CUDA"};
+        int cuda_width = ImGui::CalcTextSize("CUDA").x + ImGui::GetStyle().FramePadding.x * 2;
+        ImGui::SetNextItemWidth(cuda_width);
+        // Align it to the right side of the window
+        ImGui::SetCursorPosX(ImGui::GetWindowSize().x - cuda_width);
+        if (ImGui::MenuItem(languages[active_source_file->is_cuda ? 1 : 0])) {
+            ImGui::OpenPopup("LanguagePopup");
+        }
+        // ImGui::Combo("##language", &selected_language, languages, IM_ARRAYSIZE(languages));
+        if (ImGui::BeginPopup("LanguagePopup")) {
+            if (ImGui::MenuItem("C++"))
+                active_source_file->is_cuda = 0;
+            if (ImGui::MenuItem("CUDA"))
+                active_source_file->is_cuda = 1;
+
+            ImGui::EndPopup();
+        }
+    }
 
     TrySave(exception_what);
 }
@@ -215,13 +239,39 @@ void Editor::RenderInline(const std::string &id, std::string &exception_what, co
     SourceFile &source_file = presentation->getSourceFile(id);
     ImGui::PopStyleVar();
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::PushFont(mono_font);
 
     CheckForFileChanges(source_file, exception_what);
 
     editor.SetErrorMarkers(source_file.error_markers);
     //editor.SetImGuiChildIgnored(true);
-    editor.Render(id.c_str(), ImVec2(size.x ? size.x : 0, size.y ? size.y : editor.PreferredHeight()));
+    ImGui::PushFont(mono_font);
+    editor.Render(id.c_str(), ImVec2(size.x ? size.x : 0, size.y ? size.y : editor.PreferredHeight()), false, [&]() {
+        ImGui::PopFont();
+
+        const char* languages[] = {"C++", "CUDA"};
+        int cuda_width = ImGui::CalcTextSize("CUDA").x + ImGui::GetStyle().FramePadding.x * 2;
+        ImGui::SetNextItemWidth(cuda_width);
+        // Align it to the right side of the window
+        ImGui::SetCursorPosX(ImGui::GetWindowSize().x - cuda_width - 10);
+        ImGui::SetCursorPosY(ImGui::GetWindowSize().y - ImGui::GetFrameHeight() - 10);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+        if (ImGui::BeginChild("LanguageChild", ImVec2(cuda_width, ImGui::GetFrameHeight()), ImGuiChildFlags_Borders)) {
+            if (ImGui::MenuItem(languages[source_file.is_cuda ? 1 : 0])) {
+                ImGui::OpenPopup("LanguagePopup");
+            }
+            // ImGui::Combo("##language", &selected_language, languages, IM_ARRAYSIZE(languages));
+            if (ImGui::BeginPopup("LanguagePopup")) {
+                if (ImGui::MenuItem("C++"))
+                    source_file.is_cuda = 0;
+                if (ImGui::MenuItem("CUDA"))
+                    source_file.is_cuda = 1;
+
+                ImGui::EndPopup();
+            }
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+    });
     //editor.SetImGuiChildIgnored(false);
     if (editor.IsTextChanged()) {
         try {
@@ -237,5 +287,4 @@ void Editor::RenderInline(const std::string &id, std::string &exception_what, co
 
         TrySave(exception_what);
     }
-    ImGui::PopFont();
 }

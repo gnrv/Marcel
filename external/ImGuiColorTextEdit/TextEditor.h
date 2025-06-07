@@ -205,6 +205,46 @@ public:
     void SetBreakpoints(const Breakpoints& aMarkers) { mBreakpoints = aMarkers; }
 
     void Render(const char* aTitle, const ImVec2& aSize = ImVec2(), bool aBorder = false);
+
+    template <typename T>
+    void Render(const char* aTitle, const ImVec2& aSize, bool aBorder, T aCallback)
+    {
+        mWithinRender = true;
+        mTextChanged = false;
+        mCursorPositionChanged = false;
+
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::ColorConvertU32ToFloat4(mPalette[(int)PaletteIndex::Background]));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
+        if (!mIgnoreImGuiChild)
+            ImGui::BeginChild(aTitle, aSize, aBorder ? ImGuiChildFlags_Borders : 0, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoMove);
+
+        if (mHandleKeyboardInputs) {
+            HandleKeyboardInputs();
+            ImGui::PushAllowKeyboardFocus(true);
+        }
+
+        if (mHandleMouseInputs)
+            HandleMouseInputs();
+
+        ColorizeInternal();
+        Render();
+
+        if (mHandleKeyboardInputs)
+            ImGui::PopAllowKeyboardFocus();
+
+        mIsFocused = ImGui::IsWindowFocused();
+
+        aCallback();
+
+        if (!mIgnoreImGuiChild)
+            ImGui::EndChild();
+
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+
+        mWithinRender = false;
+    }
+
     void SetText(const std::string& aText);
     std::string GetText() const;
 
