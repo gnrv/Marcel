@@ -10,7 +10,7 @@ sudo apt install libglfw3-dev libgtk-3-dev libfmt-dev
 ```
 cd external/root-project
 mkdir cling-build && cd cling-build
-cmake -DLLVM_EXTERNAL_PROJECTS=cling -DLLVM_EXTERNAL_CLING_SOURCE_DIR=../cling/ -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="host;NVPTX;WebAssembly" -DCMAKE_BUILD_TYPE=RelWithDebInfo ../llvm-project/llvm
+cmake -DLLVM_EXTERNAL_PROJECTS=cling -DLLVM_EXTERNAL_CLING_SOURCE_DIR=../cling/ -DLLVM_ENABLE_PROJECTS="clang;lldb" -DLLVM_TARGETS_TO_BUILD="host;NVPTX;WebAssembly" -DCMAKE_BUILD_TYPE=RelWithDebInfo ../llvm-project/llvm
 cmake --build . --target cling
 ```
 
