@@ -252,10 +252,9 @@ void Editor::RenderInline(const std::string &id, std::string &exception_what, co
         int cuda_width = ImGui::CalcTextSize("CUDA").x + ImGui::GetStyle().FramePadding.x * 2;
         ImGui::SetNextItemWidth(cuda_width);
         // Align it to the right side of the window
-        ImGui::SetCursorPosX(ImGui::GetWindowSize().x - cuda_width - 10);
-        ImGui::SetCursorPosY(ImGui::GetWindowSize().y - ImGui::GetFrameHeight() - 10);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-        if (ImGui::BeginChild("LanguageChild", ImVec2(cuda_width, ImGui::GetFrameHeight()), ImGuiChildFlags_Borders)) {
+        ImGui::SetCursorPosX(ImGui::GetWindowSize().x - cuda_width - 1);
+        ImGui::SetCursorPosY(ImGui::GetWindowSize().y - ImGui::GetFrameHeight() - 1);
+        if (ImGui::BeginChild("LanguageChild", ImVec2(cuda_width, ImGui::GetFrameHeight()))) {
             if (ImGui::MenuItem(languages[source_file.is_cuda ? 1 : 0])) {
                 ImGui::OpenPopup("LanguagePopup");
             }
@@ -270,7 +269,6 @@ void Editor::RenderInline(const std::string &id, std::string &exception_what, co
             }
         }
         ImGui::EndChild();
-        ImGui::PopStyleVar();
     });
     //editor.SetImGuiChildIgnored(false);
     if (editor.IsTextChanged()) {
