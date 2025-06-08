@@ -860,6 +860,16 @@ int main(int argc, char **argv) {
                 current_slide_changed = true;
             }
         };
+        auto GoToSlide = [&](int i) {
+            int next_slide = i;
+            int limit = presentation_mode ? 0 : -1;
+            if (next_slide < limit)
+                next_slide = limit;
+            if (next_slide != current_slide) {
+                current_slide = next_slide;
+                current_slide_changed = true;
+            }
+        };
 
         // To get zero lag in presentation mode, use SetNextWindowScroll.
         if (presentation_mode) {
