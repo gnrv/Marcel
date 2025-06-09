@@ -462,15 +462,15 @@ int main(int argc, char **argv) {
 #endif
 
     // Setup window
-    start = std::chrono::high_resolution_clock::now();
+    auto start_glfw = std::chrono::high_resolution_clock::now();
     glfwSetErrorCallback([](int error, const char* description) {
         fprintf(stderr, "Glfw Error %d: %s\n", error, description);
     });
     if (!glfwInit())
         return 1;
-    end = std::chrono::high_resolution_clock::now();
-    duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    printf("GLFW init took: %ld ms\n", duration.count());
+    auto end_glfw = std::chrono::high_resolution_clock::now();
+    auto duration_glfw = std::chrono::duration_cast<std::chrono::milliseconds>(end_glfw - start_glfw);
+    printf("GLFW init took: %ld ms\n", duration_glfw.count());
 
     // GL 3.0 + GLSL 130
     const char* glsl_version = "#version 130";
