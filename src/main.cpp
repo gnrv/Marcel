@@ -58,8 +58,7 @@
 #include "algorithm"
 #include "iostream"
 #include "imga.h"
-// Include setup slide - make sure you have a -I flag pointing to the presentation directory
-#include "setup.cpp"
+#include "slides.h"
 #endif
 
 #include <nfd.hpp>
@@ -670,39 +669,9 @@ int main(int argc, char **argv) {
 #ifndef USE_CLING
     // The cpp file defines and returns an "update" lambda that will be called later, each frame, to render the ImGui
     // interface for the slide.
-    std::vector<std::function<std::function<void()>()>> slide_loaders;
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide0.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide1.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide2.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide3.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide4.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide5.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide6.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide7.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide8.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide9.cpp"
-    });
+    std::vector<std::function<std::function<void()>()>> slide_loaders = get_slide_loaders();
 
-    for (int i = 0; i < 10; ++i) {
+    for (size_t i = 0; i < 10; ++i) {
         auto& slide = presentation->slides[i];
         if (i < slide_loaders.size()) {
             slide.function = slide_loaders[i]();

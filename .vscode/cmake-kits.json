@@ -3,13 +3,15 @@
       "name": "Cling Clang",
       "compilers": {
         "C": "${workspaceFolder}/external/root-project/cling-build/bin/clang",
-        "CXX": "${workspaceFolder}/external/root-project/cling-build/bin/clang++"
+        "CXX": "${workspaceFolder}/external/root-project/cling-build/bin/clang++",
+        "CUDA": "${workspaceFolder}/external/root-project/cling-build/bin/clang++"
       },
       "isTrusted": true,
       "cmakeSettings": {
         "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=mold",
         "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=mold",
-        "CUDAToolkit_ROOT": "/usr/local/cuda-11"
+        "CUDAToolkit_ROOT": "/usr/local/cuda-11",
+        "CMAKE_CUDA_ARCHITECTURES": "native"
       }
     }
 ]
