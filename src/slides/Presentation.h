@@ -82,7 +82,10 @@ public:
     : path(path)
     , setup(path / "setup.cpp") {
         for (int i = 0; i < 10; ++i) {
-            slides.emplace_back(path / fmt::format("slide{}.cpp", i));
+            std::filesystem::path cuda_path = path / fmt::format("slide{}.cu", i);
+            std::filesystem::path cpp_path = path / fmt::format("slide{}.cpp", i);
+            std::filesystem::path slide_path = std::filesystem::exists(cuda_path) ? cuda_path : cpp_path;
+            slides.emplace_back(slide_path);
         }
     }
 

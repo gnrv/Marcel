@@ -21,6 +21,9 @@ SourceFile::SourceFile(fs::path path)
         src = "";
     }
     updateLastWriteTime();
+
+    // Check if the file is a CUDA file
+    is_cuda = path.extension() == ".cu";
 }
 
 std::string SourceFile::text() const {

@@ -1,8 +1,6 @@
-__global__ void igubanit(float *matrix, int size) {
-   int x = blockIdx.x * blockDim.x + threadIdx.x;
-   if (x < size)
-   matrix[x] = 2*x;
-}
-int dim = 1024;
-float *d_A;
 cudaMalloc(&d_A, dim*sizeof(float));
+
+auto update = [&](){
+   ImGui::Text("CUDA setup complete, d_A allocated: %p.", d_A);
+};
+return update;

@@ -10,7 +10,11 @@ option(USE_CUDA "Use CUDA" ON)
 # If you don't use Cling, define the path to the presentation here, so we can #include the source files
 # and build them at compile time instead of interpreting them using Cling at runtime
 if(NOT USE_CLING)
+if(USE_CUDA)
 include_directories("documents/cuda")
+else()
+include_directories("documents/test")
+endif()
 endif()
 
 if(UNIX AND NOT APPLE)
@@ -162,13 +166,20 @@ if(USE_CLING)
     # and use --export-dynamic-symbol=*setValueNoAlloc* to export only the
     # relevant symbols and avoid conflict with system LLVM used by WSL2 GL drivers
     target_link_options(${PROJECT_NAME} PRIVATE -Wl,--export-dynamic-symbol=*cling10printValue*, -Wl,--export-dynamic-symbol=*setValueNoAlloc*, -Wl,--export-dynamic-symbol=*setValueWithAlloc*, -Wl,--export-dynamic-symbol=*cling_runtime_internal_throwIfInvalidPointer*)
-else()
-    target_sources(${PROJECT_NAME}_lib
-        PRIVATE
-        src/slides/slides.cu
-        src/slides/slides.cpp
-    )
-endif()
+else(USE_CLING)
+    target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/slides/loader)
+    if(USE_CUDA)
+        target_sources(${PROJECT_NAME}_lib
+            PRIVATE
+            src/slides/loader/slides.cu
+        )
+    else()
+        target_sources(${PROJECT_NAME}_lib
+            PRIVATE
+            src/slides/loader/slides.cpp
+        )
+    endif()
+endif(USE_CLING)
 
 set(LIB_LINK rapidfuzz::rapidfuzz imgui GL glfw fmt::fmt nfd::nfd)
 #target_link_libraries(${PROJECT_NAME}_lib PUBLIC someObjs)
