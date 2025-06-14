@@ -870,6 +870,7 @@ int main(int argc, char **argv) {
                 current_slide_changed = true;
             }
         };
+        ImVec2 current_slide_screen_pos(0, 0); // The top left corner of the current slide in screen coordinates
 
         // To get zero lag in presentation mode, use SetNextWindowScroll.
         if (presentation_mode) {
@@ -965,6 +966,8 @@ int main(int argc, char **argv) {
                 bool animate = current_slide_changed && presentation_mode && (i == current_slide);
                 ImGui::PushID(i);
                 auto top_left = ImGui::GetCursorScreenPos();
+                if (i == current_slide)
+                    current_slide_screen_pos = top_left;
                 ImGui::Text("Slide %d %s", i, presentation->slides[i].dirty ? "*" : "");
                 if (!presentation_mode) {
                     std::string slide_id = fmt::format("slide{}", i);
@@ -1193,6 +1196,48 @@ int main(int argc, char **argv) {
         ImGui::PopStyleVar(5);
 
         // 3. Overlays
+        ImGuiWindowFlags overlay_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
+                                         ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+        ImGuiViewport* viewport = ImGui::GetMainViewport();
+
+        // Toolbars don't steal focus! But I can't figure out how to make them not steal focus, so we just manually restore focus
+        ImGuiWindow* prev_focus_window = ImGui::GetCurrentContext()->NavWindow;
+
+        // Floating editor toolbar
+        ImVec2 toolbar_size = ImVec2(0, ImGui::GetTextLineHeightWithSpacing());
+        static float toolbar_measured_width = 0.f;
+        toolbar_size.x = toolbar_measured_width;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+        // Position the toolbar at the top right corner of the viewport, leaving margin equal to the toolbar height
+        ImVec2 toolbar_pos(viewport->Pos.x + viewport->Size.x - toolbar_size.x - toolbar_size.y - 1,
+                           std::max(0.f, current_slide_screen_pos.y - toolbar_size.y/2));
+        ImGui::SetNextWindowPos(toolbar_pos, ImGuiCond_Always);
+        if (ImGui::Begin("EditorToolbar", nullptr, overlay_flags)) {
+            // Measure the width of the toolbar buttons
+            float cursor_pos_x = ImGui::GetCursorPosX();
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            if (ImGui::Button(ICON_MDI_PLAY_OUTLINE "##play")) {}
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_MDI_ARROW_SPLIT_HORIZONTAL "##split")) {}
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_MDI_DOTS_HORIZONTAL "##overflow")) {}
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_MDI_TRASH_CAN_OUTLINE "##delete")) {}
+            ImGui::SameLine(); // Needed to actually measure the width including the last button
+            toolbar_measured_width = ImGui::GetCursorPosX() - cursor_pos_x;
+            ImGui::PopStyleColor();
+        }
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+
+        // Toolbar: restore focus
+        if (prev_focus_window && prev_focus_window != ImGui::GetCurrentContext()->NavWindow)
+            ImGui::FocusWindow(prev_focus_window);
+
+
+        // Hamburger menu overlay (only in notebook mode)
         if (g_settings.notebook_mode) {
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
             float width = ImGui::GetStyle().FramePadding.x * 2 +
@@ -1200,7 +1245,6 @@ int main(int argc, char **argv) {
             float height = ImGui::GetTextLineHeightWithSpacing();
             //ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
 
-            ImGuiViewport* viewport = ImGui::GetMainViewport();
             ImVec2 pos = ImVec2(
                 viewport->Pos.x + viewport->Size.x - width,
                 viewport->Pos.y
@@ -1209,13 +1253,10 @@ int main(int argc, char **argv) {
             ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
             ImGui::SetNextWindowBgAlpha(0.0f); // Transparent background
             ImGui::SetNextWindowSize(ImVec2(width, height));
-            ImGuiWindowFlags flags = ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
-                                    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
 
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-            if (ImGui::Begin("HamburgerOverlay", nullptr, flags)) {
+            if (ImGui::Begin("HamburgerOverlay", nullptr, ImGuiWindowFlags_NoBackground | overlay_flags)) {
                 if (ImGui::Button(ICON_MDI_MENU "##hamburger"))
                     ImGui::OpenPopup("HamburgerMenu");
 
