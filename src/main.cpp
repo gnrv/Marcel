@@ -1201,41 +1201,46 @@ int main(int argc, char **argv) {
                                          ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
         ImGuiViewport* viewport = ImGui::GetMainViewport();
 
-        // Toolbars don't steal focus! But I can't figure out how to make them not steal focus, so we just manually restore focus
-        ImGuiWindow* prev_focus_window = ImGui::GetCurrentContext()->NavWindow;
-
         // Floating editor toolbar
-        ImVec2 toolbar_size = ImVec2(0, ImGui::GetTextLineHeightWithSpacing());
-        static float toolbar_measured_width = 0.f;
-        toolbar_size.x = toolbar_measured_width;
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
-        // Position the toolbar at the top right corner of the viewport, leaving margin equal to the toolbar height
-        ImVec2 toolbar_pos(viewport->Pos.x + viewport->Size.x - toolbar_size.x - toolbar_size.y - 1,
-                           std::max(0.f, current_slide_screen_pos.y - toolbar_size.y/2));
-        ImGui::SetNextWindowPos(toolbar_pos, ImGuiCond_Always);
-        if (ImGui::Begin("EditorToolbar", nullptr, overlay_flags)) {
-            // Measure the width of the toolbar buttons
-            float cursor_pos_x = ImGui::GetCursorPosX();
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-            if (ImGui::Button(ICON_MDI_PLAY_OUTLINE "##play")) {}
-            ImGui::SameLine();
-            if (ImGui::Button(ICON_MDI_ARROW_SPLIT_HORIZONTAL "##split")) {}
-            ImGui::SameLine();
-            if (ImGui::Button(ICON_MDI_DOTS_HORIZONTAL "##overflow")) {}
-            ImGui::SameLine();
-            if (ImGui::Button(ICON_MDI_TRASH_CAN_OUTLINE "##delete")) {}
-            ImGui::SameLine(); // Needed to actually measure the width including the last button
-            toolbar_measured_width = ImGui::GetCursorPosX() - cursor_pos_x;
-            ImGui::PopStyleColor();
+        if (!presentation_mode) {
+            // Toolbars don't steal focus! But I can't figure out how to make them not steal focus, so we just manually restore focus
+            ImGuiWindow* prev_focus_window = ImGui::GetCurrentContext()->NavWindow;
+
+            ImVec2 toolbar_size = ImVec2(0, ImGui::GetTextLineHeightWithSpacing());
+            static float toolbar_measured_width = 0.f;
+            toolbar_size.x = toolbar_measured_width;
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+            // Position the toolbar at the top right corner of the viewport, leaving margin equal to the toolbar height
+            ImVec2 toolbar_pos(viewport->Pos.x + viewport->Size.x/2 - toolbar_size.x - toolbar_size.y - 1,
+                               viewport->Pos.y + toolbar_size.y*3);
+            if (g_settings.notebook_mode) {
+                toolbar_pos.x += viewport->Size.x/2;
+                toolbar_pos.y = std::max(0.f, current_slide_screen_pos.y - toolbar_size.y/2);
+            }
+            ImGui::SetNextWindowPos(toolbar_pos, ImGuiCond_Always);
+            if (ImGui::Begin("EditorToolbar", nullptr, overlay_flags)) {
+                // Measure the width of the toolbar buttons
+                float cursor_pos_x = ImGui::GetCursorPosX();
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                if (ImGui::Button(ICON_MDI_PLAY_OUTLINE "##play")) {}
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_MDI_ARROW_SPLIT_HORIZONTAL "##split")) {}
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_MDI_DOTS_HORIZONTAL "##overflow")) {}
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_MDI_TRASH_CAN_OUTLINE "##delete")) {}
+                ImGui::SameLine(); // Needed to actually measure the width including the last button
+                toolbar_measured_width = ImGui::GetCursorPosX() - cursor_pos_x;
+                ImGui::PopStyleColor();
+            }
+            ImGui::End();
+            ImGui::PopStyleVar(2);
+
+            // Toolbar: restore focus
+            if (prev_focus_window && prev_focus_window != ImGui::GetCurrentContext()->NavWindow)
+                ImGui::FocusWindow(prev_focus_window);
         }
-        ImGui::End();
-        ImGui::PopStyleVar(2);
-
-        // Toolbar: restore focus
-        if (prev_focus_window && prev_focus_window != ImGui::GetCurrentContext()->NavWindow)
-            ImGui::FocusWindow(prev_focus_window);
-
 
         // Hamburger menu overlay (only in notebook mode)
         if (g_settings.notebook_mode) {
