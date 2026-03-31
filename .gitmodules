@@ -9,7 +9,7 @@
 	url = https://github.com/maxbachmann/rapidfuzz-cpp.git
 [submodule "external/root-project/llvm-project"]
 	path = external/root-project/llvm-project
-	url = https://github.com/root-project/llvm-project.git
+	url = https://github.com/gnrv/llvm-project.git
 [submodule "external/root-project/cling"]
 	path = external/root-project/cling
 	url = https://github.com/gnrv/cling.git
@@ -21,7 +21,7 @@
 	url = https://github.com/gnrv/implot3d.git
 [submodule "external/implot"]
 	path = external/imgui/implot
-	url = https://github.com/epezent/implot.git
+	url = https://github.com/gnrv/implot.git
 [submodule "external/nativefiledialog-extended"]
 	path = external/nativefiledialog-extended
 	url = https://github.com/btzy/nativefiledialog-extended
