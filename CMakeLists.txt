@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.27)
 set(CMAKE_CXX_STANDARD 20)
 
 # Cacheable configuration options
-option(USE_CLING "Use cling" OFF)
+option(USE_CLING "Use cling" ON)
 option(USE_CUDA "Use CUDA" OFF)
 
 # If you don't use Cling, define the path to the presentation here, so we can #include the source files

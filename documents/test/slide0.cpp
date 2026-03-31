@@ -3,7 +3,7 @@ static float mk_size = 6; // ImPlot::GetStyle().MarkerSize
 static float line_weight = 2;
 
 auto update = []() {
-ImGui::Text("Insehkjhkrt ImPlot Here");
+ImGui::Text("Insert ImPlot Here");
 ImGui::SliderFloat("Vector Y", &vec_y, 0, 10);
 ImGui::SliderFloat("Size", &mk_size, 0, 10);
 ImGui::SliderFloat("Vector Weight", &line_weight, 0, 10);
