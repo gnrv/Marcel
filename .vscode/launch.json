@@ -8,7 +8,7 @@
             "name": "(lldb) Launch",
             "type": "lldb-dap",
             "request": "launch",
-            "program": "${workspaceFolder}/build/quicktex",
+            "program": "${workspaceFolder}/build/marcel",
             "args": [],
             "cwd": "${workspaceFolder}/build",
             "env": []
@@ -17,7 +17,7 @@
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/quicktex",
+            "program": "${workspaceFolder}/build/marcel",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build",

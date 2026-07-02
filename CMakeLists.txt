@@ -18,7 +18,7 @@ if(UNIX AND NOT APPLE)
 endif()
 
 # Set project name
-project(quicktex LANGUAGES CXX)
+project(marcel LANGUAGES CXX)
 
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
@@ -170,14 +170,14 @@ target_link_libraries(${PROJECT_NAME}_lib PUBLIC ${LIB_LINK})
 target_link_libraries(${PROJECT_NAME} PRIVATE ${PROJECT_NAME}_lib)
 
 # Copy the data (such as fonts) in build directory
-add_custom_command(TARGET quicktex PRE_BUILD
+add_custom_command(TARGET ${PROJECT_NAME} PRE_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/data/ $<TARGET_FILE_DIR:quicktex>/data)
+    ${CMAKE_SOURCE_DIR}/data/ $<TARGET_FILE_DIR:${PROJECT_NAME}>/data)
 
 if(MSVC)
     # CMake 3.21 is for this functionnality / Copy the dlls
-    add_custom_command(TARGET quicktex POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:quicktex> $<TARGET_FILE_DIR:quicktex>
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:${PROJECT_NAME}> $<TARGET_FILE_DIR:${PROJECT_NAME}>
         COMMAND_EXPAND_LISTS
     )
 endif()

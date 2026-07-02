@@ -527,7 +527,7 @@ int main(int argc, char **argv) {
     ImVec2 window_size{ 16*window_height*window_size_scale_factor/10, window_height*window_size_scale_factor };
     GLFWwindow* window = glfwCreateWindow(window_size.x,
                                           window_size.y,
-                                          "Dear ImGui GLFW+OpenGL3 example", NULL, NULL);
+                                          "Marcel", NULL, NULL);
     if (window == NULL)
         return 1;
     g_settings.window = window;
