@@ -1,3 +1,12 @@
+# Marcel
+
+Marcel is a C++ project that aims to combine all these things:
+
+- Clifford Algebra
+- Dear ImGui and ImPlot
+- Cling
+- LLVM and Clang
+
 ## Build
 
 ### Dependencies
@@ -11,7 +20,7 @@ sudo apt install libglfw3-dev libgtk-3-dev libfmt-dev
 cd external/root-project
 mkdir cling-build && cd cling-build
 cmake -DLLVM_EXTERNAL_PROJECTS=cling -DLLVM_EXTERNAL_CLING_SOURCE_DIR=../cling/ -DLLVM_ENABLE_PROJECTS="clang;lldb" -DLLVM_TARGETS_TO_BUILD="host;NVPTX;WebAssembly" -DCMAKE_BUILD_TYPE=RelWithDebInfo ../llvm-project/llvm
-cmake --build . --target cling
+cmake --build . --target cling --target clang --target lldb-dap --target lldb-server -j $(nproc)
 ```
 
 ### Build this thing
