@@ -34,7 +34,7 @@ Marcel (formerly QuickTex) is an ImGui + MicroTeX presentation tool — "Manim b
 ### `src/engine/` — Cling execution core extracted from main.cpp
 - **`SlideEngine.h`** — async interface so in-process and remote impls are interchangeable: `setSource(slide /*-1=setup*/, text, is_cuda, request_id)`, `beginFrame(FrameInput)`, `drawSlide(slide)`, `drainEvents(sink)` (delivers compile results into `SourceFile` fields).
 - **`ClingEngine.h/.cpp`** — code motion from main.cpp, verbatim where possible: `exprToString`/`findResultExprFromExtractionFunction` (71-166), `extractMarkers` (169-192), interpreter setup incl. include paths, header preloading, `AllowRedefinition`, CUDA args (375-458), setup compile (782-812), per-slide validate/compile/lambda-wrapper synthesis incl. `reevaluate`/`evaluate` closure (1014-1163), `CaptureStderr` (src/system/stdcapture.h, unchanged) around all interp calls.
-- **`BakedEngine.h/.cpp`** — wraps the `#ifndef USE_CLING` `slide_loaders` fallback (main.cpp:670-711). Slide-file contract unchanged.
+- *(No `BakedEngine` — user decision: the `USE_CLING` flag and the `#ifndef USE_CLING` compiled-in fallback (main.cpp:670-711, `#include "setup.cpp"`, `slide_loaders`) are **removed**; Cling is required. The slide-file contract itself is unchanged.)*
 
 ### `src/worker/` — only in `marcel_worker`
 - **`worker_main.cpp`** — parse `--ipc-fd=3`, send `HelloAck`, run `WorkerApp`. No signal heroics; crashing is allowed.
@@ -53,7 +53,7 @@ Marcel (formerly QuickTex) is an ImGui + MicroTeX presentation tool — "Manim b
 - **`src/render/UiFonts.h/.cpp`** — extracts the exact font-loading sequence (main.cpp:596-610: FiraSans + merged MDI icons + big/small/mono), parameterized by scale. **Load-bearing:** slides index the atlas directly (`documents/test/slide0.cpp:14` uses `Fonts[2]`) — `Fonts[]` order must be byte-identical in the worker. Also extract WSL2/dpi detection (main.cpp:490-524) into a `DpiInfo` helper.
 
 ### Changed files
-- **`src/main.cpp`** — delete Cling includes (33-44) and all `#ifdef USE_CLING` blocks (moved to `src/engine/`); add `glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API)` near line 477 with GLX+SHM retry fallback; construct `SlideEngine` (`RemoteEngine` or `BakedEngine`); `supervisor.pump()` + `drainEvents()` after `glfwPollEvents()` (722); slide-child body (1008-1185) → `slide_view.draw(...)`. Layouts, navigation, toolbar, menus, final render/swap untouched.
+- **`src/main.cpp`** — delete Cling includes (33-44) and all `#ifdef USE_CLING` blocks (moved to `src/engine/`); add `glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API)` near line 477 with GLX+SHM retry fallback; delete the `#ifndef USE_CLING` fallback blocks (62-65-ish `setup.cpp` include, 670-711 `slide_loaders`); construct a `SlideEngine` (`RemoteEngine`; `ClingEngine` in-process during migration); `supervisor.pump()` + `drainEvents()` after `glfwPollEvents()` (722); slide-child body (1008-1185) → `slide_view.draw(...)`. Layouts, navigation, toolbar, menus, final render/swap untouched.
 - **`src/slides/Presentation.h`** — remove `cling::Transaction* last_transaction` + forward decl (16-18, 31); add `uint64_t compile_request_id{0}; bool compile_in_flight{false};` and a presentation-level `TargetFormat` (aspect + design resolution, persisted with settings). Worker-side per-slide state moves into a `WorkerSlide` struct in `ClingEngine`.
 - **`test/`** — add `test/ipc_test.cpp` (loopback framing, SCM_RIGHTS FD passing, large payloads, POLLHUP on peer death).
 
@@ -61,11 +61,12 @@ Marcel (formerly QuickTex) is an ImGui + MicroTeX presentation tool — "Manim b
 
 ```cmake
 add_library(marcel_ipc STATIC src/ipc/Channel.cpp)          # always built
-# marcel_lib additionally globs src/supervisor/*.cpp, src/render/*.cpp (USE_CLING-guarded)
-# LIB_LINK += marcel_ipc; += EGL when USE_CLING
+# The USE_CLING option is REMOVED (user decision): Cling is required, no fallback build.
+# All #ifdef USE_CLING blocks in source become unconditional; #ifndef blocks are deleted.
+# marcel_lib additionally globs src/supervisor/*.cpp, src/render/*.cpp
+# LIB_LINK += marcel_ipc EGL
 
-if(USE_CLING)
-    add_executable(marcel_worker
+add_executable(marcel_worker
         src/worker/worker_main.cpp src/worker/WorkerApp.cpp
         src/worker/HeadlessGL.cpp  src/worker/SlideRenderer.cpp
         src/worker/TextureExport.cpp src/engine/ClingEngine.cpp
@@ -78,7 +79,7 @@ if(USE_CLING)
 endif()
 ```
 
-End state (step 6): `marcel` drops the Cling libraries and export-dynamic flags entirely — no LLVM in the UI process, which also sidesteps the WSL2 GL-driver symbol-clash noted at CMakeLists.txt:163. `USE_CLING=OFF` builds are unchanged: single binary, `BakedEngine`.
+End state (step 6): `marcel` drops the Cling libraries and export-dynamic flags entirely — no LLVM in the UI process, which also sidesteps the WSL2 GL-driver symbol-clash noted at CMakeLists.txt:163.
 
 ## IPC protocol (`src/ipc/Protocol.h`)
 
@@ -150,7 +151,7 @@ Restart: SIGTERM → 500 ms → SIGKILL → waitpid → close socket → **keep 
 ## Migration order (each step builds & runs; commit per step)
 
 - **Step 0** — commit this plan to `docs/plans/`; extract `UiFonts` + `DpiInfo` (no behavior change).
-- **Step 1** — engine extraction: `SlideEngine` + `ClingEngine` (in-process) + `BakedEngine`; main.cpp loses all direct Cling code; behavior identical (pure code motion).
+- **Step 1** — require Cling + engine extraction: remove the `USE_CLING` CMake option and all `#ifdef`/`#ifndef USE_CLING` blocks (fallback path deleted); then extract `SlideEngine` + `ClingEngine` (in-process); main.cpp loses all direct Cling code; behavior identical for Cling builds (pure code motion + dead-code deletion).
 - **Step 2** — `marcel_ipc` + `test/ipc_test.cpp`; app untouched.
 - **Step 3a** — worker binary compile-only: spawn + `SetSource`/`CompileResult`; rendering still in-process via `--engine=inproc` default. Proves protocol + supervision.
 - **Step 3b** — remote rendering over SHM: HeadlessGL, per-slide contexts, FBO ring, ShmExport, SlideView + input forwarding; flip default to `--engine=remote`.
@@ -167,7 +168,6 @@ Restart: SIGTERM → 500 ms → SIGKILL → waitpid → close socket → **keep 
 - **Restart storm:** crash >5× in 30 s → supervisor stops, crash panel shows stderr.
 - **Transport:** force `--transport=shm` and verify identical rendering; check WSL2 path if available.
 - **Formats:** switch presentation target 16:10 → 4:3 → 9:16 (worker restarts with new `Hello` design resolution); aspect correct, input still lands, old textures replaced after the new announce.
-- **Fallback build:** `-DUSE_CLING=OFF` still produces the single-binary baked build.
 
 ## Risks & mitigations
 
@@ -184,4 +184,4 @@ Restart: SIGTERM → 500 ms → SIGKILL → waitpid → close socket → **keep 
 
 ## NOT changing
 
-`src/editor/*`, TextEditor, `src/search/*`; `Presentation`/`SourceFile` file management (paths, save/reload/dirty, 1 setup + 10 slides); the three layouts and navigation (main.cpp:758-1005 except the innermost slide-child body); the non-Cling fallback contract; `src/system/stdcapture.h` internals; MicroTeX/imgui/implot submodules; the Cling build in `external/root-project`.
+`src/editor/*`, TextEditor, `src/search/*`; `Presentation`/`SourceFile` file management (paths, save/reload/dirty, 1 setup + 10 slides); the three layouts and navigation (main.cpp:758-1005 except the innermost slide-child body); the slide-file contract (top-level statics + returned `update` lambda); `src/system/stdcapture.h` internals; MicroTeX/imgui/implot submodules; the Cling build in `external/root-project`.
