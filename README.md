@@ -7,6 +7,10 @@ Marcel is a C++ project that aims to combine all these things:
 - Cling
 - LLVM and Clang
 
+This project is named after [Marcel Riesz](https://en.wikipedia.org/wiki/Marcel_Riesz), who came to Lund University as professor of Mathematics 1926, one hundred years ago at the time of writing.
+
+This project name is pronounced roughly "'mortsel", which is the Hungarian pronounciation of Marcel.
+
 ## Build
 
 ### Dependencies
