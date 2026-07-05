@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake*)",
+      "Bash(ctest*)",
+      "Bash(git *)",
+      "Bash(ninja*)",
+      "Bash(make*)",
+      "Bash(pkg-config *)"
+    ]
+  }
+}

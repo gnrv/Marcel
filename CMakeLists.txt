@@ -4,14 +4,10 @@ cmake_minimum_required(VERSION 3.27)
 set(CMAKE_CXX_STANDARD 20)
 
 # Cacheable configuration options
-option(USE_CLING "Use cling" ON)
 option(USE_CUDA "Use CUDA" OFF)
 
-# If you don't use Cling, define the path to the presentation here, so we can #include the source files
-# and build them at compile time instead of interpreting them using Cling at runtime
-if(NOT USE_CLING)
-include_directories("documents/test")
-endif()
+# Cling is a hard requirement: slides are interpreted C++ at runtime.
+# (A future tool will bake presentations into standalone playback binaries.)
 
 if(UNIX AND NOT APPLE)
     set(LINUX TRUE)
@@ -75,33 +71,32 @@ include_directories(external)
 # -----
 # CLING
 # -----
-if(USE_CLING)
-    set(LLVM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/root-project/cling-build/lib/cmake/llvm")
-    find_package(LLVM REQUIRED CONFIG NO_DEFAULT_PATH)
-    message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
-    message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+set(LLVM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/root-project/cling-build/lib/cmake/llvm")
+find_package(LLVM REQUIRED CONFIG NO_DEFAULT_PATH)
+message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
-    set(Clang_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/root-project/cling-build/lib/cmake/clang")
-    find_package(Clang REQUIRED CONFIG NO_DEFAULT_PATH)
-    message(STATUS "Found Clang ${Clang_PACKAGE_VERSION}")
-    message(STATUS "Using ClangConfig.cmake in: ${Clang_DIR}")
+set(Clang_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/root-project/cling-build/lib/cmake/clang")
+find_package(Clang REQUIRED CONFIG NO_DEFAULT_PATH)
+message(STATUS "Found Clang ${Clang_PACKAGE_VERSION}")
+message(STATUS "Using ClangConfig.cmake in: ${Clang_DIR}")
 
-    set(Cling_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/root-project/cling-build/tools/cling/lib/cmake/cling")
-    find_package(Cling REQUIRED CONFIG NO_DEFAULT_PATH)
-    message(STATUS "Found Cling ${Cling_PACKAGE_VERSION}")
-    message(STATUS "Using ClingConfig.cmake in: ${Cling_DIR}")
+set(Cling_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/root-project/cling-build/tools/cling/lib/cmake/cling")
+find_package(Cling REQUIRED CONFIG NO_DEFAULT_PATH)
+message(STATUS "Found Cling ${Cling_PACKAGE_VERSION}")
+message(STATUS "Using ClingConfig.cmake in: ${Cling_DIR}")
 
-    # See if we can improve gdb start times
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -gsplit-dwarf")
-    set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG} -Wl,--gdb-index")
-    set(CMAKE_SHARED_LINKER_FLAGS_DEBUG "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} -Wl,--gdb-index")
-endif()
+# See if we can improve gdb start times
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -gsplit-dwarf")
+set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG} -Wl,--gdb-index")
+set(CMAKE_SHARED_LINKER_FLAGS_DEBUG "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} -Wl,--gdb-index")
 
 # Sources of program
 include_directories(src src/editor src/slides external/ImGuiColorTextEdit)
 file(GLOB source_list RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     src/core/*.cpp
     src/editor/*.cpp
+    src/engine/*.cpp
     src/render/*.cpp
     src/search/*.cpp
     src/slides/*.cpp
@@ -115,13 +110,7 @@ add_library(${PROJECT_NAME}_lib
 )
 
 # Main program executable
-if(USE_CLING)
-    set(LIBS clingInterpreter clingMetaProcessor clingUtils)
-else()
-    set(LIBS "")
-endif()
-# (TODO: Only if we're not using Cling) Add "documents" to the include directories
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/documents)
+set(LIBS clingInterpreter clingMetaProcessor clingUtils)
 
 add_executable(${PROJECT_NAME}
 src/main.cpp
@@ -130,12 +119,10 @@ ${APP_ICON_RESOURCE_WINDOWS}
 target_link_libraries(${PROJECT_NAME} PUBLIC ${LIBS})
 
 # Include directories
-if(USE_CLING)
-    target_include_directories(${PROJECT_NAME} PUBLIC ${LLVM_INCLUDE_DIRS})
-    target_include_directories(${PROJECT_NAME} PUBLIC ${CLANG_INCLUDE_DIRS})
-    target_include_directories(${PROJECT_NAME} PUBLIC ${CLING_INCLUDE_DIRS})
-    target_compile_definitions(${PROJECT_NAME} PRIVATE USE_CLING=1)
-    if(USE_CUDA)
+target_include_directories(${PROJECT_NAME} PUBLIC ${LLVM_INCLUDE_DIRS})
+target_include_directories(${PROJECT_NAME} PUBLIC ${CLANG_INCLUDE_DIRS})
+target_include_directories(${PROJECT_NAME} PUBLIC ${CLING_INCLUDE_DIRS})
+if(USE_CUDA)
         target_compile_definitions(${PROJECT_NAME} PRIVATE USE_CUDA=1)
         # If we use CUDA, we need to link against the CUDA libraries
         # Cling requires CUDA 11 exactly
@@ -150,20 +137,19 @@ if(USE_CLING)
             message(FATAL_ERROR "CUDA Toolkit not found, but USE_CUDA is set to ON")
         endif()
 
-        target_compile_definitions(${PROJECT_NAME} PRIVATE CUDA_PATH="${CUDAToolkit_ROOT}")
-        target_compile_definitions(${PROJECT_NAME} PRIVATE CUDA_LIB_DIR="${CUDAToolkit_LIBRARY_DIR}")
-    endif()
-
-    # Cling JITted code needs to be able to resolve symbols from its own executable
-    # OR we can turn off value printing in cling
-    # UPDATE: turns out we need some of these symbols just to get a cling::Value out of
-    #         the interpreter
-    #set_target_properties(${PROJECT_NAME} PROPERTIES ENABLE_EXPORTS 1)
-    # We can use a more targeted option that exists in mold (inspired by one in gold)
-    # and use --export-dynamic-symbol=*setValueNoAlloc* to export only the
-    # relevant symbols and avoid conflict with system LLVM used by WSL2 GL drivers
-    target_link_options(${PROJECT_NAME} PRIVATE -Wl,--export-dynamic-symbol=*cling10printValue*, -Wl,--export-dynamic-symbol=*setValueNoAlloc*, -Wl,--export-dynamic-symbol=*setValueWithAlloc*, -Wl,--export-dynamic-symbol=*cling_runtime_internal_throwIfInvalidPointer*)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE CUDA_PATH="${CUDAToolkit_ROOT}")
+    target_compile_definitions(${PROJECT_NAME} PRIVATE CUDA_LIB_DIR="${CUDAToolkit_LIBRARY_DIR}")
 endif()
+
+# Cling JITted code needs to be able to resolve symbols from its own executable
+# OR we can turn off value printing in cling
+# UPDATE: turns out we need some of these symbols just to get a cling::Value out of
+#         the interpreter
+#set_target_properties(${PROJECT_NAME} PROPERTIES ENABLE_EXPORTS 1)
+# We can use a more targeted option that exists in mold (inspired by one in gold)
+# and use --export-dynamic-symbol=*setValueNoAlloc* to export only the
+# relevant symbols and avoid conflict with system LLVM used by WSL2 GL drivers
+target_link_options(${PROJECT_NAME} PRIVATE -Wl,--export-dynamic-symbol=*cling10printValue*, -Wl,--export-dynamic-symbol=*setValueNoAlloc*, -Wl,--export-dynamic-symbol=*setValueWithAlloc*, -Wl,--export-dynamic-symbol=*cling_runtime_internal_throwIfInvalidPointer*)
 
 set(LIB_LINK rapidfuzz::rapidfuzz imgui GL glfw fmt::fmt nfd::nfd)
 #target_link_libraries(${PROJECT_NAME}_lib PUBLIC someObjs)
@@ -223,8 +209,10 @@ pkg_check_modules(CPPUNIT REQUIRED IMPORTED_TARGET cppunit)
 add_executable(${PROJECT_NAME}_tests
     test/main_test.cpp
     test/DpiInfoTest.cpp
+    test/MarkerExtractTest.cpp
 )
 target_link_libraries(${PROJECT_NAME}_tests PRIVATE ${PROJECT_NAME}_lib PkgConfig::CPPUNIT)
 
 # One CTest entry per suite; marcel_tests <SuiteName> runs a single named suite.
-add_test(NAME DpiInfo COMMAND ${PROJECT_NAME}_tests DpiInfoTest)
+add_test(NAME DpiInfo       COMMAND ${PROJECT_NAME}_tests DpiInfoTest)
+add_test(NAME MarkerExtract COMMAND ${PROJECT_NAME}_tests MarkerExtractTest)

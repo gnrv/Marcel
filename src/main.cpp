@@ -30,7 +30,6 @@
 #include <filesystem>
 #include <fstream>
 
-#ifdef USE_CLING
 #include "clang/AST/Mangle.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendActions.h"
@@ -41,35 +40,19 @@
 #include "cling/Utils/Output.h"
 #include "cling/MetaProcessor/InputValidator.h"
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
-#endif
 
 #include "system/sys_util.h"
 #include "system/stdcapture.h"
 #include "system/DpiInfo.h"
+#include "engine/MarkerExtract.h"
 #include "render/UiFonts.h"
 
-#ifndef USE_CLING
-#include "GL/gl.h"
-#include "GLFW/glfw3.h"
-#include "imgui.h"
-#include "imgui_latex.h"
-#include "implot.h"
-#include "implot3d.h"
-#include "cmath"
-#include "cstdio"
-#include "algorithm"
-#include "iostream"
-#include "imga.h"
-// Include setup slide - make sure you have a -I flag pointing to the presentation directory
-#include "setup.cpp"
-#endif
 
 #include <nfd.hpp>
 #include <nfd_glfw3.h>
 
 static float f_adjust = 0.0f;
 
-#ifdef USE_CLING
 std::string exprToString(clang::Expr* expr, const clang::ASTContext& context) {
     clang::LangOptions langOpts;
     langOpts.CPlusPlus = true;
@@ -165,32 +148,6 @@ std::string findResultExprFromExtractionFunction(cling::Transaction* tx) {
     }
 
     return std::string();
-}
-#endif // USE_CLING
-
-void extractMarkers(SourceFile &source_file, const char *buf, size_t size, size_t offset = 0) {
-    source_file.error_markers.clear();
-    std::string buf_str(buf, size);
-    size_t line_no = 0;
-    auto colon_pos = buf_str.find(':');
-    if (colon_pos != std::string::npos) {
-        auto line_str = buf_str.substr(colon_pos + 1);
-        try {
-            line_no = std::stoi(line_str);
-        } catch (const std::invalid_argument& e) {
-            line_no = 1;
-        } catch (const std::out_of_range& e) {
-            line_no = 1;
-        }
-    }
-
-    line_no += offset;
-    line_no = std::min(line_no, source_file.lines);
-    line_no = std::max(line_no, size_t(1));
-
-    // For now, strip out the ansi color codes
-    buf_str = std::regex_replace(buf_str, std::regex("\033\\[[0-9;]*m"), "");
-    source_file.error_markers.emplace(line_no, buf_str);
 }
 
 struct MyAppSettings {
@@ -298,11 +255,7 @@ void RenderMenu(Editor &editor, std::string &exception_what, TToggleFullscreen T
     if (ImGui::BeginMenu("File")) {
     // Disable this menu item if we don't have access to the Cling interpreter.
     if (ImGui::MenuItem("Open Folder", "Ctrl-O", false,
-#ifdef USE_CLING
         true
-#else
-        false
-#endif
     )) {
         // Open a folder dialog to select the presentation folder
         std::string path = OpenFolderDialog();
@@ -374,7 +327,6 @@ if (ImGui::BeginMenu("View")) {
 int main(int argc, char **argv) {
     std::filesystem::current_path(getExecutablePath());
 
-#ifdef USE_CLING
     // Add --ptrcheck to argc, argv
     std::vector<const char*> new_argv;
     for (int i = 0; i < argc; ++i) {
@@ -457,10 +409,6 @@ int main(int argc, char **argv) {
     end = std::chrono::high_resolution_clock::now();
     duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     printf("Loading headers into PTX interpreter took: %ld ms\n", duration.count());
-#endif
-#else
-    (void)argc;
-    (void)argv;
 #endif
 
     // Setup window
@@ -638,48 +586,6 @@ int main(int argc, char **argv) {
         ImGui::SaveIniSettingsToDisk(ImGui::GetIO().IniFilename);
     };
 
-#ifndef USE_CLING
-    // The cpp file defines and returns an "update" lambda that will be called later, each frame, to render the ImGui
-    // interface for the slide.
-    std::vector<std::function<std::function<void()>()>> slide_loaders;
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide0.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide1.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide2.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide3.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide4.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide5.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide6.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide7.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide8.cpp"
-    });
-    slide_loaders.push_back([]() -> std::function<void()> {
-        #include "slide9.cpp"
-    });
-
-    for (int i = 0; i < 10; ++i) {
-        auto& slide = presentation->slides[i];
-        if (i < slide_loaders.size()) {
-            slide.function = slide_loaders[i]();
-        }
-    }
-#endif
 
     // Main loop
     std::string exception_what;
@@ -748,7 +654,6 @@ int main(int argc, char **argv) {
             ImGui::PopStyleVar();
         }
 
-#ifdef USE_CLING
         SourceFile &setup = presentation->setup;
         if (!setup.validated) {
             try {
@@ -781,7 +686,6 @@ int main(int argc, char **argv) {
             }
 
         }
-#endif
 
         // 2. Presentation window
         float presentation_width = (presentation_mode || g_settings.notebook_mode) ? width : width/2;
@@ -982,7 +886,6 @@ int main(int argc, char **argv) {
                 ImGui::PushScale(slide_scale);
 
                 SourceFile &slide_src = presentation->slides[i];
-#ifdef USE_CLING
                 if (!slide_src.validated) {
                     try {
                         cling::InputValidator validator;
@@ -1132,7 +1035,6 @@ int main(int argc, char **argv) {
                         }
                     }
                 }
-#endif
                 ImGuiErrorRecoveryState state;
                 ImGui::ErrorRecoveryStoreState(&state);
                 try {
@@ -1293,11 +1195,7 @@ int main(int argc, char **argv) {
             ImGui::Combo("What", &current_dump_option, dump_options, IM_ARRAYSIZE(dump_options));
             ImGui::InputText("Filter", dump_filter, sizeof(dump_filter));
             if (ImGui::Button("Dump")) {
-            #ifdef USE_CLING
                 interp.dump(dump_options[current_dump_option], dump_filter);
-            #else
-                std::cout << "Cling not available - dump not supported" << std::endl;
-            #endif
             }
 
             ImGui::End();
