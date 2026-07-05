@@ -102,6 +102,7 @@ include_directories(src src/editor src/slides external/ImGuiColorTextEdit)
 file(GLOB source_list RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     src/core/*.cpp
     src/editor/*.cpp
+    src/render/*.cpp
     src/search/*.cpp
     src/slides/*.cpp
     src/system/*.cpp
@@ -213,3 +214,17 @@ target_link_options(${PROJECT_NAME} PRIVATE ${SUBSYSTEM_LINKER_OPTIONS})
 #     SET(CPACK_GENERATOR "DEB")
 #     SET(CPACK_DEBIAN_PACKAGE_MAINTAINER "KK")
 # endif()
+# ---- Unit tests (CppUnit + CTest) ----
+# CppUnit comes from the Ubuntu package libcppunit-dev (found via pkg-config).
+enable_testing()
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(CPPUNIT REQUIRED IMPORTED_TARGET cppunit)
+
+add_executable(${PROJECT_NAME}_tests
+    test/main_test.cpp
+    test/DpiInfoTest.cpp
+)
+target_link_libraries(${PROJECT_NAME}_tests PRIVATE ${PROJECT_NAME}_lib PkgConfig::CPPUNIT)
+
+# One CTest entry per suite; marcel_tests <SuiteName> runs a single named suite.
+add_test(NAME DpiInfo COMMAND ${PROJECT_NAME}_tests DpiInfoTest)

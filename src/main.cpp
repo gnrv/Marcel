@@ -45,6 +45,8 @@
 
 #include "system/sys_util.h"
 #include "system/stdcapture.h"
+#include "system/DpiInfo.h"
+#include "render/UiFonts.h"
 
 #ifndef USE_CLING
 #include "GL/gl.h"
@@ -480,27 +482,11 @@ int main(int argc, char **argv) {
     //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
     //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
 
-    // On WSL2, the scale returned is 1.0, even though Windows is using a scale of 200%.
-    // Watch out, because WSLg might be just blowing up the window to 2x! Resulting in a
-    // nastly pixellated look. Our framebuffer is still just 1x.
-    // Get rid of that totally fake scaling using
-    // $ cat /mnt/c/Users/<user>/.wslgconfig
-    // [system-distro-env]
-    // WESTON_RDP_DEBUG_DESKTOP_SCALING_FACTOR=100
-    float dpi_scale = 1.f;
-    float window_size_scale_factor = 1.f;
-    bool is_wsl2 = false;
-    std::ifstream file("/proc/version");
-    if (file.good()) {
-        std::string line;
-        std::getline(file, line);
-        if (line.find("WSL") != std::string::npos) {
-            // WSL2 detected
-            is_wsl2 = true;
-            dpi_scale = 2.f; // Or whatever your setting is in Windows, e.g. 200% is 2.f
-            window_size_scale_factor = 1.f; // For the window size
-        }
-    }
+    // WSL2/dpi detection shared with the worker process (see src/system/DpiInfo.h)
+    DpiInfo dpi_info = detectDpi();
+    float dpi_scale = dpi_info.dpi_scale;
+    float window_size_scale_factor = dpi_info.window_size_scale_factor;
+    bool is_wsl2 = dpi_info.is_wsl2;
 
     // To determine possible window height, query the monitor height.
     int monitor_count;
@@ -591,27 +577,12 @@ int main(int argc, char **argv) {
     // - The fonts will be rasterized at a given size (w/ oversampling) and stored into a texture when calling ImFontAtlas::Build()/GetTexDataAsXXXX(), which ImGui_ImplXXXX_NewFrame below will call.
     // - Read 'docs/FONTS.md' for more instructions and details.
     // - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double backslash \\ !
-    //io.Fonts->AddFontDefault();
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf", base_font_size);
-    const float base_font_size = 16.0f;
-    ImFont *fira_sans = io.Fonts->AddFontFromFileTTF("../data/fonts/fira/FiraSans-Regular.ttf", base_font_size*dpi_scale);
-    (void)fira_sans; // We don't use this font, it's the default
-
-    ImFontConfig config;
-    config.MergeMode = true;
-    config.GlyphMinAdvanceX = base_font_size; // Use if you want to make the icon monospaced
-    static const ImWchar icon_ranges[] = { ICON_MIN_MDI, ICON_MAX_MDI, 0 };
-    io.Fonts->AddFontFromFileTTF("../data/fonts/material-design-icons/materialdesignicons-webfont.ttf", base_font_size*dpi_scale, &config, icon_ranges);
-
-    // Presentation sizes
-    ImFont *fira_sans_big = io.Fonts->AddFontFromFileTTF("../data/fonts/fira/FiraSans-Regular.ttf", 48.0f*dpi_scale);
-    ImFont *fira_sans_small = io.Fonts->AddFontFromFileTTF("../data/fonts/fira/FiraSans-Regular.ttf", 32.0f*dpi_scale);
-
-    ImFont *fira_mono = io.Fonts->AddFontFromFileTTF("../data/fonts/fira/FiraMono-Regular.ttf", base_font_size*dpi_scale);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", base_font_size);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/ProggyTiny.ttf", 10.0f);
-    //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f, NULL, io.Fonts->GetGlyphRangesJapanese());
-    //IM_ASSERT(font != NULL);
+    // Font set shared with the worker process — order is load-bearing, see UiFonts.h
+    UiFonts ui_fonts = LoadUiFonts(io.Fonts, dpi_scale);
+    ImFont *fira_sans_big = ui_fonts.fira_sans_big;
+    ImFont *fira_sans_small = ui_fonts.fira_sans_small;
+    (void)fira_sans_small;
+    ImFont *fira_mono = ui_fonts.fira_mono;
 
     // Our state
     bool show_demo_window = false;
