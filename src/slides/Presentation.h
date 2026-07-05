@@ -29,6 +29,9 @@ public:
     bool compiled{ false };
     bool syntax_error{ false };
     cling::Transaction *last_transaction{ nullptr };
+    // Remote (out-of-process) compilation state, used by RemoteEngine.
+    uint64_t compile_request_id{ 0 };
+    bool compile_in_flight{ false };
     std::function<void ()> function; // Function to execute the slide, if any
     std::string value; // The cling::Value converted to a string, if any
     std::string exception;

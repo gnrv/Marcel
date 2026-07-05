@@ -38,6 +38,10 @@ void SourceFile::execute() {
     validated = false;
     compiled = false;
     syntax_error = false;
+    // Invalidate any in-flight remote compile: its result must not be
+    // applied over the new text (request_id 0 never matches a submission).
+    compile_in_flight = false;
+    compile_request_id = 0;
 
     // Count lines
     lines = std::count(src.begin(), src.end(), '\n');

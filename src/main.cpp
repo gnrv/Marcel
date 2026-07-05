@@ -33,7 +33,10 @@
 #include "system/sys_util.h"
 #include "system/DpiInfo.h"
 #include "engine/ClingEngine.h"
+#include "supervisor/RemoteEngine.h"
 #include "render/UiFonts.h"
+
+#include <memory>
 
 
 #include <nfd.hpp>
@@ -218,7 +221,20 @@ if (ImGui::BeginMenu("View")) {
 int main(int argc, char **argv) {
     std::filesystem::current_path(getExecutablePath());
 
-    ClingEngine engine(argc, argv);
+    // --engine=remote: compile in a supervised marcel_worker process (a
+    // crashing/hanging compile kills the worker, not the app). Default is
+    // the in-process engine until remote rendering lands (step 3b of
+    // docs/plans/client-server-refactor.md).
+    bool use_remote_engine = false;
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--engine=remote")
+            use_remote_engine = true;
+    std::unique_ptr<SlideEngine> engine_owner;
+    if (use_remote_engine)
+        engine_owner = std::make_unique<RemoteEngine>(getExecutablePath() + "/marcel_worker");
+    else
+        engine_owner = std::make_unique<ClingEngine>(argc, argv);
+    SlideEngine &engine = *engine_owner;
 
     // Setup window
     auto start_glfw = std::chrono::high_resolution_clock::now();
