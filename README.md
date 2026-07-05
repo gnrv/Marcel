@@ -9,7 +9,7 @@ Marcel is a C++ project that aims to combine all these things:
 
 This project is named after [Marcel Riesz](https://en.wikipedia.org/wiki/Marcel_Riesz), who came to Lund University as professor of Mathematics 1926, one hundred years ago at the time of writing.
 
-This project name is pronounced roughly "'mortsel", which is the Hungarian pronounciation of Marcel.
+The project name is pronounced roughly "'mortsel", which is the Hungarian pronunciation of "Marcel".
 
 ## Build
 
@@ -50,3 +50,7 @@ encounter a problem where CMake fails to configure with an error message "/usr/b
 
 Solution: sudo apt install libstdc++-12-dev
 Reference: https://stackoverflow.com/questions/74543715/usr-bin-ld-cannot-find-lstdc-no-such-file-or-directory-on-running-flutte
+
+## Acknowledgements
+
+Thanks to [Jokteur](https://github.com/jokteur) for providing the initial ImGUI + MicroTex integration that got me started down the road to creating Marcel in his [QuickTex](https://github.com/jokteur/QuickTex) project.
