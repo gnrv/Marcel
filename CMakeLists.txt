@@ -100,6 +100,7 @@ file(GLOB source_list RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     src/render/*.cpp
     src/search/*.cpp
     src/slides/*.cpp
+    src/supervisor/*.cpp
     src/system/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/external/ImGuiColorTextEdit/TextEditor.cpp
 )
@@ -221,6 +222,7 @@ add_executable(${PROJECT_NAME}_tests
     test/MarkerExtractTest.cpp
     test/SerializeTest.cpp
     test/IpcChannelTest.cpp
+    test/SupervisorLogicTest.cpp
 )
 target_link_libraries(${PROJECT_NAME}_tests PRIVATE ${PROJECT_NAME}_lib ${PROJECT_NAME}_ipc PkgConfig::CPPUNIT)
 
@@ -229,3 +231,4 @@ add_test(NAME DpiInfo       COMMAND ${PROJECT_NAME}_tests DpiInfoTest)
 add_test(NAME MarkerExtract COMMAND ${PROJECT_NAME}_tests MarkerExtractTest)
 add_test(NAME Serialize     COMMAND ${PROJECT_NAME}_tests SerializeTest)
 add_test(NAME IpcChannel    COMMAND ${PROJECT_NAME}_tests IpcChannelTest)
+add_test(NAME SupervisorLogic COMMAND ${PROJECT_NAME}_tests SupervisorLogicTest)
