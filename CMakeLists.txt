@@ -241,6 +241,8 @@ add_executable(${PROJECT_NAME}_tests
     test/SerializeTest.cpp
     test/IpcChannelTest.cpp
     test/SupervisorLogicTest.cpp
+    test/BufferRingTest.cpp
+    test/InputMapTest.cpp
 )
 target_link_libraries(${PROJECT_NAME}_tests PRIVATE ${PROJECT_NAME}_lib ${PROJECT_NAME}_ipc PkgConfig::CPPUNIT)
 
@@ -250,3 +252,5 @@ add_test(NAME MarkerExtract COMMAND ${PROJECT_NAME}_tests MarkerExtractTest)
 add_test(NAME Serialize     COMMAND ${PROJECT_NAME}_tests SerializeTest)
 add_test(NAME IpcChannel    COMMAND ${PROJECT_NAME}_tests IpcChannelTest)
 add_test(NAME SupervisorLogic COMMAND ${PROJECT_NAME}_tests SupervisorLogicTest)
+add_test(NAME BufferRing    COMMAND ${PROJECT_NAME}_tests BufferRingTest)
+add_test(NAME InputMap      COMMAND ${PROJECT_NAME}_tests InputMapTest)
