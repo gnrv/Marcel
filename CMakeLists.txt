@@ -104,6 +104,11 @@ file(GLOB source_list RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/external/ImGuiColorTextEdit/TextEditor.cpp
 )
 
+# IPC static lib: the marcel <-> marcel_worker protocol + channel. No GL,
+# no Cling — linked by marcel, marcel_worker, and the tests.
+add_library(${PROJECT_NAME}_ipc STATIC src/ipc/Channel.cpp)
+target_include_directories(${PROJECT_NAME}_ipc PUBLIC src)
+
 # Making a library without the main, for the tests and the program.
 # ClingEngine links Cling/LLVM, so it belongs to the executable, not the lib —
 # the tests link ${PROJECT_NAME}_lib and must not need LLVM.
@@ -214,9 +219,13 @@ add_executable(${PROJECT_NAME}_tests
     test/main_test.cpp
     test/DpiInfoTest.cpp
     test/MarkerExtractTest.cpp
+    test/SerializeTest.cpp
+    test/IpcChannelTest.cpp
 )
-target_link_libraries(${PROJECT_NAME}_tests PRIVATE ${PROJECT_NAME}_lib PkgConfig::CPPUNIT)
+target_link_libraries(${PROJECT_NAME}_tests PRIVATE ${PROJECT_NAME}_lib ${PROJECT_NAME}_ipc PkgConfig::CPPUNIT)
 
 # One CTest entry per suite; marcel_tests <SuiteName> runs a single named suite.
 add_test(NAME DpiInfo       COMMAND ${PROJECT_NAME}_tests DpiInfoTest)
 add_test(NAME MarkerExtract COMMAND ${PROJECT_NAME}_tests MarkerExtractTest)
+add_test(NAME Serialize     COMMAND ${PROJECT_NAME}_tests SerializeTest)
+add_test(NAME IpcChannel    COMMAND ${PROJECT_NAME}_tests IpcChannelTest)
