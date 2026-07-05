@@ -22,7 +22,7 @@ Marcel (formerly QuickTex) is an ImGui + MicroTeX presentation tool — "Manim b
 
 - **Main** keeps: editor, all three layouts (tabbed split, notebook, presentation mode), navigation, file management. Slides display as `ImGui::Image()` of the worker's latest frame. Never blocks on the worker — a stalled worker just means a stale (still-displayed) texture.
 - **Worker** owns: Cling, syntax validation, stderr capture, slide execution, offscreen rendering. Crashes are expected and recoverable.
-- **Target formats (per presentation, user decision):** design resolution is a presentation-level setting, not a constant: `16:10 → 1728×1080` (laptop-native — modern laptops are 16:10; current default aspect, `src/main.cpp:834-836` TODO), `4:3 → 1440×1080` (iPad / future CRT-shader videos), `16:9 → 1920×1080` (YouTube), `9:16 → 1080×1920` (shorts). All four are first-class; 16:10 remains the default. Worker renders at fixed design resolution × dpi factor; main GPU-downscales into `slide_size`. Format changes at runtime go through `SetConfig` → worker reallocs FBOs → `TextureRetire` + `TextureAnnounce` (no restart needed). Input translation is a single affine map into design-resolution coordinates.
+- **Target format (per presentation, user decision):** the protocol carries only a raw `design_w × design_h` in the `Hello` handshake — no format enum at the IPC level. Presets are UI-level convenience only: `16:10 → 1728×1080` (laptop-native, current default aspect, `src/main.cpp:834-836` TODO), `4:3 → 1440×1080` (iPad / future CRT-shader videos), `16:9 → 1920×1080` (YouTube), `9:16 → 1080×1920` (shorts). The design resolution is **fixed for the worker's lifetime**: changing it restarts the worker (reusing the supervisor's normal restart + state-resubmission path — cheap and simple). Worker renders at design resolution × dpi factor; main GPU-downscales into `slide_size`; textures are allocated and announced once, never realloc'd. Input translation is a single affine map into design-resolution coordinates.
 
 ## New files
 
@@ -91,19 +91,19 @@ constexpr uint32_t kTransportDmabuf = 1u<<0, kTransportShm = 1u<<1;
 
 enum class MsgType : uint32_t {
   // main -> worker
-  Hello=1, SetConfig, SetSource, FrameBegin, BufferRelease, ClipboardData, Ping, Shutdown,
+  Hello=1, SetSource, FrameBegin, BufferRelease, ClipboardData, Ping, Shutdown,
   // worker -> main
-  HelloAck=100, CompileBusy, CompileResult, TextureAnnounce, TextureRetire,
+  HelloAck=100, CompileBusy, CompileResult, TextureAnnounce,
   FrameDone, ClipboardRequest, Pong, LogText,
 };
 struct MsgHeader { MsgType type; uint32_t payload_size; };
 
-struct HelloMsg     { uint32_t protocol_version, transport_caps; float dpi_scale; };
+struct HelloMsg     { uint32_t protocol_version, transport_caps; float dpi_scale;
+                      uint32_t design_w, design_h; };  // raw pixels; fixed for worker lifetime.
+                      // UI presets map onto this: 16:10=1728x1080 (default), 4:3=1440x1080,
+                      // 16:9=1920x1080, 9:16=1080x1920. Resolution change = worker restart.
 struct HelloAckMsg  { uint32_t protocol_version, transport_caps, chosen_transport;
                       char gl_renderer[128]; };
-struct SetConfigMsg { uint32_t design_w, design_h; };   // per-presentation target format:
-                      // 16:10=1728x1080 (default, laptop-native), 4:3=1440x1080,
-                      // 16:9=1920x1080, 9:16=1080x1920 — all first-class
 struct SetSourceMsg { int32_t slide /*-1=setup*/; uint64_t request_id; uint8_t is_cuda;
                       uint32_t text_len; /* char text[] */ };
 
@@ -128,7 +128,6 @@ struct TextureAnnounceMsg {  // + plane FDs (dmabuf) or 1 memfd (shm) via SCM_RI
   int32_t slide; uint32_t buffer_index, transport, width, height,
   fourcc /*DRM_FORMAT_ABGR8888*/; uint64_t modifier;
   uint32_t num_planes, stride[4], offset[4]; };
-struct TextureRetireMsg { int32_t slide; uint32_t buffer_index; };
 
 struct SlideFrameResult { int32_t slide; uint32_t buffer_index;
   uint8_t rendered, want_capture_mouse, want_capture_keyboard, want_text_input;
@@ -140,13 +139,13 @@ struct PingMsg { uint64_t token; }; struct PongMsg { uint64_t token; };
 ```
 
 **Frame loop.** Main, per UI frame: (1) `pump()` — waitpid/drain socket; FrameDone promotes each slide's new front buffer, previous front becomes releasable. (2) If no FrameBegin outstanding, gather visibility/hover/mouse/events → send; else coalesce. (3) Draw UI with current front textures (stale-tolerant). (4) After `glfwSwapBuffers`, send queued `BufferRelease`s (dma-buf implicit sync covers the in-flight sampling; strict fence sync in step 6).
-**Worker, per FrameBegin:** for each visible slide with a FREE buffer: inject input → NewFrame → run lambda (try/catch + ErrorRecovery) → Render into FBO; (re)alloc + `TextureAnnounce` only on size/format change; `glFinish()`; `FrameDone`. No FREE buffer → skip slide (main shows front; no tearing possible). Version mismatch at Hello → "worker binary out of date", no retry loop.
+**Worker, per FrameBegin:** for each visible slide with a FREE buffer: inject input → NewFrame → run lambda (try/catch + ErrorRecovery) → Render into FBO; buffers are allocated + `TextureAnnounce`d once, on a slide's first render (design resolution is fixed for the worker's lifetime); `glFinish()`; `FrameDone`. No FREE buffer → skip slide (main shows front; no tearing possible). Version mismatch at Hello → "worker binary out of date", no retry loop.
 
 ## Watchdog
 
 Liveness, cheapest first: **(1)** process exit — `waitpid(WNOHANG)` per frame + POLLHUP → immediate. **(2)** hard hang — `Ping` every 500 ms answered by the IO thread; no Pong for 2 s. **(3)** work-thread hang (infinite loop in slide code) — no FrameDone for 1 s while a FrameBegin is outstanding; **suppressed while `CompileBusy` is outstanding** (compiles legitimately take seconds → 30 s timeout + always-available "Restart worker" toolbar button).
 
-Restart: SIGTERM → 500 ms → SIGKILL → waitpid → close socket → **keep imported textures** (slides display last-good frame + dimmed "restarting worker…" overlay). **Poisoned source:** if a `CompileBusy{S}` was outstanding at death, mark S `syntax_error` with marker "This code crashed the interpreter (worker restarted)" + stderr tail; editing S clears it. Respawn with backoff 0/1/2/4…10 s; >5 crashes in 30 s → stop, show crash panel with stderr ring. After handshake: `SetConfig`, `SetSource(setup)`, `SetSource(slide0..9)` skipping poisoned; resume FrameBegin after setup's CompileResult. Editor stays fully live throughout.
+Restart: SIGTERM → 500 ms → SIGKILL → waitpid → close socket → **keep imported textures** (slides display last-good frame + dimmed "restarting worker…" overlay). **Poisoned source:** if a `CompileBusy{S}` was outstanding at death, mark S `syntax_error` with marker "This code crashed the interpreter (worker restarted)" + stderr tail; editing S clears it. Respawn with backoff 0/1/2/4…10 s; >5 crashes in 30 s → stop, show crash panel with stderr ring. After handshake (`Hello` carries the design resolution): `SetSource(setup)`, `SetSource(slide0..9)` skipping poisoned; resume FrameBegin after setup's CompileResult. Editor stays fully live throughout.
 
 ## Migration order (each step builds & runs; commit per step)
 
@@ -167,7 +166,7 @@ Restart: SIGTERM → 500 ms → SIGKILL → waitpid → close socket → **keep 
 - **Hang resilience:** slide with `while(true){}` in the update lambda → FrameDone timeout → auto-restart; UI responsive throughout. Compile-time hang (template bomb) → spinner + 30 s timeout + manual restart button.
 - **Restart storm:** crash >5× in 30 s → supervisor stops, crash panel shows stderr.
 - **Transport:** force `--transport=shm` and verify identical rendering; check WSL2 path if available.
-- **Formats:** switch presentation target 16:10 → 4:3 → 9:16 at runtime; textures realloc, aspect correct, input still lands.
+- **Formats:** switch presentation target 16:10 → 4:3 → 9:16 (worker restarts with new `Hello` design resolution); aspect correct, input still lands, old textures replaced after the new announce.
 - **Fallback build:** `-DUSE_CLING=OFF` still produces the single-binary baked build.
 
 ## Risks & mitigations
