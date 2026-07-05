@@ -8,6 +8,8 @@ Marcel (formerly QuickTex) is an ImGui + MicroTeX presentation tool — "Manim b
 
 **Critical fact the April plan missed (verified in exploration):** slides do NOT render to a texture today. Cling-JITted slide code makes live immediate-mode ImGui calls into the host's shared ImGui context (`src/main.cpp:1168`). The worker must therefore host its own headless GL + per-slide ImGui contexts, run slide lambdas against forwarded input, render into FBOs, and export those. There is currently **zero** EGL, FBO, `ImGui::Image`, or IPC code in the repo — all greenfield.
 
+**Long-term goal (context for this and future work; not planned here):** Marcel's typical end product is a YouTube-ready MPEG-4 video, "rendered" from the slides together with one or more audio tracks and rosbags carrying slide input data (typically a RealSense 3D capture of the narrator's face and physical items, recorded simultaneously with the audio). A timeline UI will handle audio recording, silence trimming, and aligning "next slide" events to the audio. This refactor is a stepping stone toward that: the worker renders slides offscreen at a fixed target resolution against a **main-supplied clock** (`FrameBegin.time`/`delta_time`) — the same substrate an offline, deterministic video renderer needs. Implementation note for all steps: slide rendering must stay driven by the injected clock and inputs (never `glfwGetTime()`-style wall-clock reads inside the render path), so a future renderer can step frames at exactly 1/fps.
+
 ## Architecture
 
 ```
@@ -30,6 +32,7 @@ Marcel (formerly QuickTex) is an ImGui + MicroTeX presentation tool — "Manim b
 - **`Protocol.h`** — the protocol source of truth (below).
 - **`Channel.h/.cpp`** — `socketpair(AF_UNIX, SOCK_SEQPACKET)` wrapper: `send(type, payload, fds)` via `sendmsg`+`SCM_RIGHTS`; non-blocking `poll()`/`recv()` → `{header, payload, fds}`. One datagram = one message (SEQPACKET preserves boundaries; enforce 1 MB max, bump `SO_SNDBUF`). Peer death via `POLLHUP`/`ECONNRESET`.
 - **`Serialize.h`** — append/read helpers for variable-length tails (strings, marker arrays, per-slide blocks).
+- **`BufferRing.h`** — per-slide 3-buffer FREE→INFLIGHT→HELD state machine, shared by worker (allocation side) and main (front/release side). Pure logic; developed test-first (`BufferRingTest`).
 
 ### `src/engine/` — Cling execution core extracted from main.cpp
 - **`SlideEngine.h`** — async interface so in-process and remote impls are interchangeable: `setSource(slide /*-1=setup*/, text, is_cuda, request_id)`, `beginFrame(FrameInput)`, `drawSlide(slide)`, `drainEvents(sink)` (delivers compile results into `SourceFile` fields).
@@ -39,15 +42,17 @@ Marcel (formerly QuickTex) is an ImGui + MicroTeX presentation tool — "Manim b
 ### `src/worker/` — only in `marcel_worker`
 - **`worker_main.cpp`** — parse `--ipc-fd=3`, send `HelloAck`, run `WorkerApp`. No signal heroics; crashing is allowed.
 - **`WorkerApp.h/.cpp`** — owns `ClingEngine` + `Channel` + renderers. Two threads: *IO thread* (blocking recv; answers `Ping`→`Pong` even mid-compile; emits `CompileBusy` before dispatching a `SetSource`) and *work thread* (sole owner of GL + Cling; drains queue; compiles; renders; replies).
-- **`HeadlessGL.h/.cpp`** — EGL init: try `EGL_PLATFORM_SURFACELESS_MESA`, fall back to default display + 1×1 pbuffer; `eglBindAPI(EGL_OPENGL_API)`; GL 3.0-compatible context permanently current on the work thread (setup code calls raw GL at compile time). `glfwInit()` with `GLFW_PLATFORM_NULL` so `glfwGetTime()` in user code works.
+- **`HeadlessGL.h/.cpp`** — EGL init: try `EGL_PLATFORM_SURFACELESS_MESA`, fall back to default display + 1×1 pbuffer; `eglBindAPI(EGL_OPENGL_API)`; GL 3.0-compatible context permanently current on the work thread (setup code calls raw GL at compile time). `glfwInit()` with `GLFW_PLATFORM_NULL` so `glfwGetTime()` in user code doesn't crash — but slide code should treat `ImGui::GetTime()`/`io.DeltaTime` (driven by the injected `FrameBegin.time`) as the animation clock; wall-clock reads like `glfwGetTime()` won't be steppable by the future offline video renderer.
 - **`SlideRenderer.h/.cpp`** — per slide: `ImGuiContext*` via `CreateContext(shared_atlas)` (vendored ImGui 1.91.7 supports it — verified imgui.h:327) + `ImPlotContext`/`ImPlot3DContext` + `ImGui::InitLatex()` per context; `io.IniFilename=nullptr`; input injected via `io.AddMousePosEvent/AddMouseButtonEvent/AddKeyEvent/AddInputCharacter`. 3-deep FBO/texture ring, states FREE→INFLIGHT→HELD. Frame: apply input → NewFrame → fullscreen borderless host window at design resolution → `PushFont` mirroring main.cpp:1010 → `ErrorRecoveryStoreState` + try/catch → invoke slide function → Render → `ImGui_ImplOpenGL3_RenderDrawData` into a FREE buffer → `glFinish()` (fence FDs in step 6).
 - **`TextureExport.h/.cpp`** — `ExportBackend`: `DmabufExport` (`eglCreateImageKHR` from GL texture → `eglExportDMABUFImageQueryMESA`/`eglExportDMABUFImageMESA`; `TextureAnnounce`+FDs once per allocation) and `ShmExport` (memfd per buffer; `glReadPixels` per frame; announce once). Chosen at `Hello`/`HelloAck` capability negotiation.
 
 ### `src/supervisor/` — only in `marcel`
-- **`WorkerProcess.h/.cpp`** — `socketpair`+`fork`+`execv(<exe_dir>/marcel_worker)`; child socket dup2'd to fd 3; child stderr → pipe drained into main's stderr **and** a ring buffer (crash forensics panel). `pump()` once per UI frame: `waitpid(WNOHANG)`, POLLHUP, heartbeat, restart state machine.
+- **`SupervisorLogic.h/.cpp`** — the watchdog/restart brain as a pure, clock-injected state machine (events in, actions out — see Testing section). Developed test-first (`SupervisorLogicTest`); owns all timeout/backoff/poisoned-source policy.
+- **`WorkerProcess.h/.cpp`** — thin side-effect shell around `SupervisorLogic`: `socketpair`+`fork`+`execv(<exe_dir>/marcel_worker)`; child socket dup2'd to fd 3; child stderr → pipe drained into main's stderr **and** a ring buffer (crash forensics panel). `pump()` once per UI frame: `waitpid(WNOHANG)`, POLLHUP, feed events to the logic, execute its actions.
 - **`RemoteEngine.h/.cpp`** — `SlideEngine` over IPC. Per frame: drain socket (CompileResult→SourceFile; TextureAnnounce→import; FrameDone→promote front buffers, queue `BufferRelease`); scan `Presentation` for `!compiled && !syntax_error && !compile_in_flight` → `SetSource`; at most **one outstanding `FrameBegin`** (mailbox pacing — coalesce input if the previous FrameDone is pending).
 - **`TextureImport.h/.cpp`** — DMABUF import (`eglCreateImageKHR(EGL_LINUX_DMA_BUF_EXT)` + `glEGLImageTargetTexture2DOES` via `eglGetProcAddress`) and SHM upload (`mmap` + `glTexSubImage2D` on dirty). Imported textures survive worker death (dma-buf is kernel-refcounted) → stale-frame display during restart.
-- **`SlideView.h/.cpp`** — replaces the slide-child body (main.cpp:1008-1185): `ImGui::Image(front_texture, slide_size)`; hover/focus; mouse translated to design-resolution slide-local coords; key/char/wheel collection for hovered/focused slide; exception text under slide; "compiling…" spinner and "worker restarting…" overlay.
+- **`InputMap.h/.cpp`** — pure input-translation logic: screen→design-resolution affine map, hover bounds, drag ownership, capture-flag gating. Developed test-first (`InputMapTest`).
+- **`SlideView.h/.cpp`** — replaces the slide-child body (main.cpp:1008-1185): `ImGui::Image(front_texture, slide_size)`; hover/focus via `InputMap`; key/char/wheel collection for hovered/focused slide; exception text under slide; "compiling…" spinner and "worker restarting…" overlay.
 
 ### Shared helper
 - **`src/render/UiFonts.h/.cpp`** — extracts the exact font-loading sequence (main.cpp:596-610: FiraSans + merged MDI icons + big/small/mono), parameterized by scale. **Load-bearing:** slides index the atlas directly (`documents/test/slide0.cpp:14` uses `Fonts[2]`) — `Fonts[]` order must be byte-identical in the worker. Also extract WSL2/dpi detection (main.cpp:490-524) into a `DpiInfo` helper.
@@ -55,7 +60,7 @@ Marcel (formerly QuickTex) is an ImGui + MicroTeX presentation tool — "Manim b
 ### Changed files
 - **`src/main.cpp`** — delete Cling includes (33-44) and all `#ifdef USE_CLING` blocks (moved to `src/engine/`); add `glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API)` near line 477 with GLX+SHM retry fallback; delete the `#ifndef USE_CLING` fallback blocks (62-65-ish `setup.cpp` include, 670-711 `slide_loaders`); construct a `SlideEngine` (`RemoteEngine`; `ClingEngine` in-process during migration); `supervisor.pump()` + `drainEvents()` after `glfwPollEvents()` (722); slide-child body (1008-1185) → `slide_view.draw(...)`. Layouts, navigation, toolbar, menus, final render/swap untouched.
 - **`src/slides/Presentation.h`** — remove `cling::Transaction* last_transaction` + forward decl (16-18, 31); add `uint64_t compile_request_id{0}; bool compile_in_flight{false};` and a presentation-level `TargetFormat` (aspect + design resolution, persisted with settings). Worker-side per-slide state moves into a `WorkerSlide` struct in `ClingEngine`.
-- **`test/`** — add `test/ipc_test.cpp` (loopback framing, SCM_RIGHTS FD passing, large payloads, POLLHUP on peer death).
+- **`test/`** — CppUnit suites (see the Testing section): `test/main_test.cpp` (runner), `test/MarkerExtractTest.cpp`, `test/IpcChannelTest.cpp`, `test/SerializeTest.cpp`, `test/SupervisorLogicTest.cpp`, `test/BufferRingTest.cpp`, `test/InputMapTest.cpp`. Existing `test/has_filesystem.cpp` untouched.
 
 ## CMake changes
 
@@ -148,20 +153,48 @@ Liveness, cheapest first: **(1)** process exit — `waitpid(WNOHANG)` per frame 
 
 Restart: SIGTERM → 500 ms → SIGKILL → waitpid → close socket → **keep imported textures** (slides display last-good frame + dimmed "restarting worker…" overlay). **Poisoned source:** if a `CompileBusy{S}` was outstanding at death, mark S `syntax_error` with marker "This code crashed the interpreter (worker restarted)" + stderr tail; editing S clears it. Respawn with backoff 0/1/2/4…10 s; >5 crashes in 30 s → stop, show crash panel with stderr ring. After handshake (`Hello` carries the design resolution): `SetSource(setup)`, `SetSource(slide0..9)` skipping poisoned; resume FrameBegin after setup's CompileResult. Editor stays fully live throughout.
 
+## Testing (CppUnit + CTest)
+
+Framework: **CppUnit from the Ubuntu package** (`libcppunit-dev` 1.15.1 — already installed). No vcpkg/FetchContent. CMake wiring:
+
+```cmake
+enable_testing()
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(CPPUNIT REQUIRED IMPORTED_TARGET cppunit)   # cppunit.pc from libcppunit-dev
+
+add_executable(marcel_tests test/main_test.cpp test/MarkerExtractTest.cpp ...)
+target_link_libraries(marcel_tests PRIVATE marcel_lib marcel_ipc PkgConfig::CPPUNIT)
+# main_test.cpp: CppUnit::TextUi::TestRunner + CompilerOutputter; argv[1] selects a
+# suite from the TestFactoryRegistry so CTest gets one entry per suite:
+add_test(NAME MarkerExtract COMMAND marcel_tests MarkerExtractTest)
+add_test(NAME IpcChannel    COMMAND marcel_tests IpcChannelTest)
+# ... one add_test per suite; plain `ctest` runs them all
+```
+
+**Test-first features** — chosen because they are pure logic (no GL, no Cling, no UI), yet load-bearing for crash resilience. Each suite is written *before* its implementation; the E2E/user-interaction surface is deliberately left for later:
+
+1. **`MarkerExtractTest`** (step 1) — *characterization first*: lock down `extractMarkers()` (`src/main.cpp:169-192`) behavior on captured clang stderr fixtures (`file:line:` parsing, ANSI stripping, multi-error input) **before** the code moves into `ClingEngine`, so the step-1 code motion is protected. Requires making `extractMarkers` a free function taking `(text) → markers` (it nearly is already).
+2. **`IpcChannelTest` + `SerializeTest`** (step 2) — written before `Channel`/`Serialize`: datagram boundaries over a real socketpair, `SCM_RIGHTS` FD passing (send a memfd, write through the received FD, verify contents), oversize-message rejection, `POLLHUP` on peer close, round-trip of every variable-length message (`CompileResult` with markers, `FrameBegin` with input arrays).
+3. **`SupervisorLogicTest`** (steps 3a + 5) — the watchdog brain as a **pure class** `src/supervisor/SupervisorLogic.h/.cpp`: inputs are events (`worker_exited`, `pong{token}`, `compile_busy`, `compile_result`, `frame_done`, `tick(now)`), outputs are actions (`spawn`, `kill`, `send_ping`, `mark_poisoned{slide}`, `resubmit_sources`, `give_up`). Injected clock — no sleeping, no real processes. Test-first: heartbeat timeout (2 s), FrameDone hang timeout (1 s), CompileBusy suppression (30 s), backoff 0/1/2/4…10 s, >5-crashes-in-30 s cutoff, poisoned-source marking, state resubmission order. `WorkerProcess` becomes a thin shell executing the actions — this split is *forced* by writing the tests first, which is exactly why it's worth it.
+4. **`BufferRingTest`** (step 3b) — per-slide 3-buffer FREE→INFLIGHT→HELD state machine as `src/ipc/BufferRing.h` (shared by worker and main): promotion on FrameDone, release-to-FREE, no-FREE-buffer skip, never hand out a HELD buffer, retire-on-death behavior.
+5. **`InputMapTest`** (step 3b) — `src/supervisor/InputMap.h/.cpp`: screen→design-resolution affine mapping, hover bounds, drag ownership persists while a button is held even when the cursor leaves the slide image, `want_capture_mouse` gating of main's scroll/keys.
+
+Existing `test/has_filesystem.cpp` compile probe stays as-is.
+
 ## Migration order (each step builds & runs; commit per step)
 
-- **Step 0** — commit this plan to `docs/plans/`; extract `UiFonts` + `DpiInfo` (no behavior change).
-- **Step 1** — require Cling + engine extraction: remove the `USE_CLING` CMake option and all `#ifdef`/`#ifndef USE_CLING` blocks (fallback path deleted); then extract `SlideEngine` + `ClingEngine` (in-process); main.cpp loses all direct Cling code; behavior identical for Cling builds (pure code motion + dead-code deletion).
-- **Step 2** — `marcel_ipc` + `test/ipc_test.cpp`; app untouched.
-- **Step 3a** — worker binary compile-only: spawn + `SetSource`/`CompileResult`; rendering still in-process via `--engine=inproc` default. Proves protocol + supervision.
-- **Step 3b** — remote rendering over SHM: HeadlessGL, per-slide contexts, FBO ring, ShmExport, SlideView + input forwarding; flip default to `--engine=remote`.
+- **Step 0** — commit this plan to `docs/plans/`; extract `UiFonts` + `DpiInfo` (no behavior change); add `enable_testing()` + CppUnit/CTest scaffolding with a trivial passing suite (`libcppunit-dev` already installed).
+- **Step 1** — require Cling + engine extraction: remove the `USE_CLING` CMake option and all `#ifdef`/`#ifndef USE_CLING` blocks (fallback path deleted); **`MarkerExtractTest` first** (characterization on the current code), then extract `SlideEngine` + `ClingEngine` (in-process); main.cpp loses all direct Cling code; behavior identical for Cling builds (pure code motion + dead-code deletion, green tests prove the marker parsing survived).
+- **Step 2** — **`IpcChannelTest` + `SerializeTest` first**, then `marcel_ipc` until green; app untouched.
+- **Step 3a** — worker binary compile-only: **`SupervisorLogicTest` first** (spawn/exit/backoff subset), then `SupervisorLogic` + `WorkerProcess` shell + `SetSource`/`CompileResult`; rendering still in-process via `--engine=inproc` default. Proves protocol + supervision.
+- **Step 3b** — remote rendering over SHM: **`BufferRingTest` + `InputMapTest` first**, then HeadlessGL, per-slide contexts, FBO ring, ShmExport, SlideView + input forwarding; flip default to `--engine=remote`.
 - **Step 4** — DMA-BUF zero-copy: EGL context in main (GLX+SHM fallback), Dmabuf export/import, transport negotiation.
-- **Step 5** — watchdog hardening: heartbeat, dual hang timeouts, backoff, poisoned-source, resubmission, overlays, crash panel.
+- **Step 5** — watchdog hardening: **extend `SupervisorLogicTest` first** (heartbeat, hang timeouts, CompileBusy suppression, crash-storm cutoff, poisoned-source), then implement; overlays, crash panel.
 - **Step 6** — cleanup & polish: remove Cling link + inproc engine from `marcel`; fence-FD sync (`EGL_ANDROID_native_fence_sync`) replacing `glFinish`; clipboard proxy (`ClipboardRequest`/`ClipboardData`).
 
 ## Verification
 
-- **Unit:** `test/ipc_test.cpp` — framing, FD passing, large payloads, POLLHUP.
+- **Unit (CppUnit via `ctest`):** all suites above green at every step boundary; suites are written before their implementations per the Testing section.
 - **End-to-end after 3b and again after 4/5:** build both targets; open `documents/test`; verify slides render + `slide0.cpp` slider/plot interaction works through input forwarding.
 - **Crash resilience (the point of it all):** slide containing `*(volatile int*)0 = 0;` → worker dies, UI stays up, slide marked poisoned, other slides keep rendering; fix the line → auto-recompile.
 - **Hang resilience:** slide with `while(true){}` in the update lambda → FrameDone timeout → auto-restart; UI responsive throughout. Compile-time hang (template bomb) → spinner + 30 s timeout + manual restart button.

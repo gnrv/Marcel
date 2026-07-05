@@ -16,7 +16,7 @@ The project name is pronounced roughly "'mortsel", which is the Hungarian pronun
 ### Dependencies
 
 ```
-sudo apt install libglfw3-dev libgtk-3-dev libfmt-dev
+sudo apt install libglfw3-dev libgtk-3-dev libfmt-dev libcppunit-dev
 ```
 
 ### Build Cling Dependency
