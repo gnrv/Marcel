@@ -104,7 +104,10 @@ file(GLOB source_list RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/external/ImGuiColorTextEdit/TextEditor.cpp
 )
 
-# Making a library without the main, for the tests and the program
+# Making a library without the main, for the tests and the program.
+# ClingEngine links Cling/LLVM, so it belongs to the executable, not the lib —
+# the tests link ${PROJECT_NAME}_lib and must not need LLVM.
+list(REMOVE_ITEM source_list src/engine/ClingEngine.cpp)
 add_library(${PROJECT_NAME}_lib
     ${source_list}
 )
@@ -114,6 +117,7 @@ set(LIBS clingInterpreter clingMetaProcessor clingUtils)
 
 add_executable(${PROJECT_NAME}
 src/main.cpp
+src/engine/ClingEngine.cpp
 ${APP_ICON_RESOURCE_WINDOWS}
 )
 target_link_libraries(${PROJECT_NAME} PUBLIC ${LIBS})

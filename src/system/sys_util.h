@@ -9,7 +9,7 @@
 
 #define MAX_PATH 260
 
-std::string getExecutablePath() {
+inline std::string getExecutablePath() {
 #ifdef _WIN32
     char buffer[MAX_PATH];
     GetModuleFileNameA(NULL, buffer, MAX_PATH);
