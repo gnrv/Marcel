@@ -21,6 +21,8 @@ public:
 
     bool valid() const { return valid_; }
     const std::string &renderer() const { return renderer_; }
+    void *display() const { return display_; } // EGLDisplay
+    void *context() const { return context_; } // EGLContext
 
 private:
     void *display_ = nullptr; // EGLDisplay

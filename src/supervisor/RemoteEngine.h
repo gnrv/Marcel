@@ -73,6 +73,16 @@ public:
     uint32_t designW() const { return settings_.design_w; }
     uint32_t designH() const { return settings_.design_h; }
 
+    // Transports this process can display, advertised in Hello. Set after
+    // the GL context exists (TextureImport::dmabufAvailable probes it) and
+    // before the first pump — the worker spawns lazily on the first frame.
+    void setTransportCaps(uint32_t caps) { transport_caps_ = caps; }
+
+    // After glfwSwapBuffers: release dma-buf buffers displaced this frame
+    // (the GPU may sample the front buffer up to the swap; shm buffers are
+    // copies and were released at upload time).
+    void postSwap();
+
 private:
     struct ShmMapping {
         int fd = -1;
@@ -81,7 +91,10 @@ private:
     };
     struct Stream {
         RemoteSlideFrame frame;
-        ShmMapping maps[ipc::kBuffersPerSlide];
+        uint32_t transport = 0; // of the last TextureAnnounce
+        ShmMapping maps[ipc::kBuffersPerSlide];            // shm
+        unsigned buffer_tex[ipc::kBuffersPerSlide] = {};   // dmabuf imports
+        int front = -1; // dmabuf: buffer index currently displayed
     };
 
     void pump(double now);
@@ -108,6 +121,8 @@ private:
     std::map<int, Stream> streams_;
     std::map<int, ipc::SlideInput> frame_inputs_; // this UI frame's visible slides
     std::vector<ipc::InputEvent> frame_events_;
+    std::vector<ipc::BufferReleaseMsg> release_after_swap_; // dmabuf only
+    uint32_t transport_caps_ = ipc::kTransportShm;
     bool frame_outstanding_ = false;
     uint64_t next_frame_id_ = 1;
 };

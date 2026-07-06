@@ -50,7 +50,8 @@ bool loadFboFunctions()
 } // namespace
 
 SlideRenderer::SlideRenderer(uint32_t width, uint32_t height, float dpi_scale,
-                             ImFontAtlas *atlas, ImFont *big_font)
+                             ImFontAtlas *atlas, ImFont *big_font,
+                             uint32_t num_targets)
     : w_(width), h_(height), dpi_scale_(dpi_scale), big_font_(big_font)
 {
     if (!loadFboFunctions()) {
@@ -72,21 +73,30 @@ SlideRenderer::SlideRenderer(uint32_t width, uint32_t height, float dpi_scale,
     ImGui_ImplOpenGL3_Init("#version 130");
     ImGui::SetCurrentContext(prev);
 
-    glGenTextures(1, &tex_);
-    glBindTexture(GL_TEXTURE_2D, tex_);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w_, h_, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-    p_glGenFramebuffers(1, &fbo_);
-    p_glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
-    p_glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex_, 0);
-    GLenum status = p_glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    p_glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    if (status != GL_FRAMEBUFFER_COMPLETE) {
-        fprintf(stderr, "SlideRenderer: FBO incomplete (0x%x)\n", status);
-        p_glDeleteFramebuffers(1, &fbo_);
-        glDeleteTextures(1, &tex_);
-        fbo_ = tex_ = 0;
+    for (uint32_t i = 0; i < num_targets; ++i) {
+        Target t;
+        glGenTextures(1, &t.tex);
+        glBindTexture(GL_TEXTURE_2D, t.tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w_, h_, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        p_glGenFramebuffers(1, &t.fbo);
+        p_glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+        p_glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t.tex, 0);
+        GLenum status = p_glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        p_glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            fprintf(stderr, "SlideRenderer: FBO incomplete (0x%x)\n", status);
+            p_glDeleteFramebuffers(1, &t.fbo);
+            glDeleteTextures(1, &t.tex);
+            for (Target &prev : targets_) {
+                p_glDeleteFramebuffers(1, &prev.fbo);
+                glDeleteTextures(1, &prev.tex);
+            }
+            targets_.clear();
+            return;
+        }
+        targets_.push_back(t);
     }
 }
 
@@ -103,20 +113,21 @@ SlideRenderer::~SlideRenderer()
         ImGui::SetCurrentContext(prev == ctx_ ? nullptr : prev);
         ImGui::DestroyContext(ctx_);
     }
-    if (fbo_)
-        p_glDeleteFramebuffers(1, &fbo_);
-    if (tex_)
-        glDeleteTextures(1, &tex_);
+    for (Target &t : targets_) {
+        p_glDeleteFramebuffers(1, &t.fbo);
+        glDeleteTextures(1, &t.tex);
+    }
 }
 
 SlideRenderer::Result SlideRenderer::render(const std::function<void()> &fn,
                                             const std::string &value,
                                             double time, float delta_time,
                                             const ipc::SlideInput &input,
-                                            const std::vector<ipc::InputEvent> &events)
+                                            const std::vector<ipc::InputEvent> &events,
+                                            uint32_t target)
 {
     Result result;
-    if (!valid())
+    if (!valid() || target >= targets_.size())
         return result;
 
     ImGuiContext *prev = ImGui::GetCurrentContext();
@@ -192,7 +203,7 @@ SlideRenderer::Result SlideRenderer::render(const std::function<void()> &fn,
     result.want_capture_keyboard = io.WantCaptureKeyboard;
     result.want_text_input = io.WantTextInput;
 
-    p_glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+    p_glBindFramebuffer(GL_FRAMEBUFFER, targets_[target].fbo);
     glViewport(0, 0, static_cast<GLsizei>(w_), static_cast<GLsizei>(h_));
     glClearColor(0.06f, 0.06f, 0.06f, 1.0f); // ImGui dark WindowBg
     glClear(GL_COLOR_BUFFER_BIT);
@@ -203,9 +214,11 @@ SlideRenderer::Result SlideRenderer::render(const std::function<void()> &fn,
     return result;
 }
 
-void SlideRenderer::readPixels(void *dst)
+void SlideRenderer::readPixels(uint32_t target, void *dst)
 {
-    p_glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+    if (target >= targets_.size())
+        return;
+    p_glBindFramebuffer(GL_FRAMEBUFFER, targets_[target].fbo);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, static_cast<GLsizei>(w_), static_cast<GLsizei>(h_),
                  GL_RGBA, GL_UNSIGNED_BYTE, dst);

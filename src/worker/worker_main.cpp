@@ -145,10 +145,20 @@ int main(int argc, char **argv)
                             const int *fds, uint32_t n) { return sendMsg(t, p, s, fds, n); });
     bool gl_ok = app.initGL();
 
+    // Transport negotiation: dma-buf zero-copy when both sides support it,
+    // else shm (memfd + glReadPixels), else compile-only.
+    uint32_t caps = app.transportCaps();
+    uint32_t chosen = 0;
+    if (caps & hello.transport_caps & ipc::kTransportDmabuf)
+        chosen = ipc::kTransportDmabuf;
+    else if (caps & ipc::kTransportShm)
+        chosen = ipc::kTransportShm;
+    app.setTransport(chosen);
+
     ipc::HelloAckMsg ack{};
     ack.protocol_version = ipc::kProtocolVersion;
-    ack.transport_caps = gl_ok ? ipc::kTransportShm : 0;
-    ack.chosen_transport = gl_ok ? ipc::kTransportShm : 0;
+    ack.transport_caps = caps;
+    ack.chosen_transport = chosen;
     snprintf(ack.gl_renderer, sizeof(ack.gl_renderer), "%s",
              gl_ok ? app.glRenderer().c_str() : "(no GL)");
     if (!sendMsg(ipc::MsgType::HelloAck, &ack, sizeof(ack)))

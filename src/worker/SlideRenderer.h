@@ -32,34 +32,44 @@ public:
     };
 
     // Requires a current GL context. big_font must live in `atlas`.
+    // num_targets: render targets (texture+FBO pairs) — 1 for the SHM
+    // transport (one FBO, glReadPixels into each ring buffer), one per ring
+    // buffer for dma-buf (each target texture is exported and rendered to
+    // directly).
     SlideRenderer(uint32_t width, uint32_t height, float dpi_scale,
-                  ImFontAtlas *atlas, ImFont *big_font);
+                  ImFontAtlas *atlas, ImFont *big_font, uint32_t num_targets = 1);
     ~SlideRenderer();
     SlideRenderer(const SlideRenderer &) = delete;
     SlideRenderer &operator=(const SlideRenderer &) = delete;
 
-    bool valid() const { return fbo_ != 0; }
+    bool valid() const { return !targets_.empty(); }
 
     // Runs one ImGui frame with the slide function (or its value text when
-    // fn is empty) and rasterizes into the internal FBO.
+    // fn is empty) and rasterizes into target's FBO.
     Result render(const std::function<void()> &fn, const std::string &value,
                   double time, float delta_time,
                   const ipc::SlideInput &input,
-                  const std::vector<ipc::InputEvent> &events);
+                  const std::vector<ipc::InputEvent> &events,
+                  uint32_t target = 0);
 
-    // glReadPixels the last rendered frame (RGBA8, bottom-up rows — the
+    // glReadPixels a target's last frame (RGBA8, bottom-up rows — the
     // reader flips via UV coordinates). dst must hold width*height*4 bytes.
-    void readPixels(void *dst);
+    void readPixels(uint32_t target, void *dst);
 
+    unsigned targetTexture(uint32_t target) const { return targets_[target].tex; }
     uint32_t width() const { return w_; }
     uint32_t height() const { return h_; }
 
 private:
+    struct Target {
+        unsigned tex = 0, fbo = 0;
+    };
+
     uint32_t w_, h_;
     float dpi_scale_;
     ImFont *big_font_;
     ImGuiContext *ctx_ = nullptr;
     ImPlotContext *plot_ = nullptr;
     ImPlot3DContext *plot3d_ = nullptr;
-    unsigned fbo_ = 0, tex_ = 0;
+    std::vector<Target> targets_; // empty when FBO setup failed
 };

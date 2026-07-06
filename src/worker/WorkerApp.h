@@ -59,6 +59,11 @@ public:
     bool initGL();
     const std::string &glRenderer() const { return gl_.renderer(); }
 
+    // Transports this worker can serve (0 without GL). The driver picks the
+    // intersection with main's Hello caps and tells us via setTransport.
+    uint32_t transportCaps() const;
+    void setTransport(uint32_t transport) { transport_ = transport; }
+
     // Heavy: constructs the Cling interpreter. Call after the IO thread is
     // answering pings.
     void initEngine(int argc, char **argv);
@@ -71,17 +76,22 @@ private:
         std::unique_ptr<SourceFile> src;
         std::unique_ptr<SlideRenderer> renderer;
         ipc::BufferRing ring;
-        std::array<ShmBuffer, ipc::kBuffersPerSlide> buffers;
+        std::array<ShmBuffer, ipc::kBuffersPerSlide> buffers;   // shm only
+        std::array<bool, ipc::kBuffersPerSlide> announced{};    // dmabuf only
     };
 
     void handleSetSource(WorkerEvent &ev);
     void handleFrameBegin(WorkerEvent &ev);
+    // First use of a ring buffer: create/export it and send TextureAnnounce
+    // (memfd for shm, dma-buf plane fds for dmabuf). False = buffer unusable.
+    bool announceBuffer(SlideState &st, int32_t slide, uint32_t b);
     SlideState &state(int32_t slide); // in .cpp: needs complete SlideRenderer
     SourceFile &sourceFor(int32_t slide, SlideState &st);
 
     ipc::HelloMsg hello_;
     SendFn send_;
     HeadlessGL gl_;
+    uint32_t transport_ = ipc::kTransportShm;
     std::unique_ptr<ClingEngine> engine_;
     ImFontAtlas *atlas_ = nullptr;
     struct ImFont *big_font_ = nullptr;

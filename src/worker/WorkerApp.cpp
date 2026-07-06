@@ -4,11 +4,14 @@
 #include "ipc/Serialize.h"
 #include "render/UiFonts.h"
 #include "worker/SlideRenderer.h"
+#include "worker/TextureExport.h"
 #include "Presentation.h"
 
 #include "imgui.h"
 #include "imgui_latex.h"
 #include "backends/imgui_impl_opengl3.h"
+
+#include <GL/gl.h>
 
 #include <cstdio>
 #include <utility>
@@ -52,6 +55,16 @@ bool WorkerApp::initGL()
     ImGui::GetStyle().ScaleAllSizes(hello_.dpi_scale);
     ImGui_ImplOpenGL3_Init("#version 130");
     return true;
+}
+
+uint32_t WorkerApp::transportCaps() const
+{
+    if (!gl_.valid())
+        return 0;
+    uint32_t caps = ipc::kTransportShm;
+    if (texture_export::dmabufAvailable(gl_.display()))
+        caps |= ipc::kTransportDmabuf;
+    return caps;
 }
 
 void WorkerApp::initEngine(int argc, char **argv)
@@ -176,6 +189,49 @@ void WorkerApp::handleSetSource(WorkerEvent &ev)
     send_(ipc::MsgType::CompileResult, w.data(), w.size(), nullptr, 0);
 }
 
+bool WorkerApp::announceBuffer(SlideState &st, int32_t slide, uint32_t b)
+{
+    ipc::TextureAnnounceMsg ann{};
+    ann.slide = slide;
+    ann.buffer_index = b;
+    ann.width = hello_.design_w;
+    ann.height = hello_.design_h;
+
+    if (transport_ == ipc::kTransportDmabuf) {
+        if (st.announced[b])
+            return true;
+        int fds[ipc::kMaxFds];
+        int n = texture_export::exportDmabuf(gl_.display(), gl_.context(),
+                                             st.renderer->targetTexture(b), ann, fds);
+        if (n > 0) {
+            send_(ipc::MsgType::TextureAnnounce, &ann, sizeof(ann), fds,
+                  static_cast<uint32_t>(n));
+            for (int i = 0; i < n; ++i)
+                close(fds[i]); // the send dup'ed them into the socket
+            st.announced[b] = true;
+            return true;
+        }
+        // The extension was advertised but the export failed anyway: drop
+        // to shm for good (main handles either transport per announce; the
+        // extra render targets on existing renderers just sit unused).
+        fprintf(stderr, "worker: dma-buf export failed, falling back to shm\n");
+        transport_ = ipc::kTransportShm;
+    }
+
+    ShmBuffer &buf = st.buffers[b];
+    if (buf.valid())
+        return true;
+    if (!buf.create(size_t(hello_.design_w) * hello_.design_h * 4))
+        return false;
+    ann.transport = ipc::kTransportShm;
+    ann.fourcc = ipc::kFourccAbgr8888;
+    ann.num_planes = 1;
+    ann.stride[0] = hello_.design_w * 4;
+    int fd = buf.fd();
+    send_(ipc::MsgType::TextureAnnounce, &ann, sizeof(ann), &fd, 1);
+    return true;
+}
+
 void WorkerApp::handleFrameBegin(WorkerEvent &ev)
 {
     ipc::Writer done;
@@ -191,48 +247,38 @@ void WorkerApp::handleFrameBegin(WorkerEvent &ev)
 
         SlideState &st = state(input.slide);
         bool has_content = st.src && (st.src->function || !st.src->value.empty());
+        bool dmabuf = transport_ == ipc::kTransportDmabuf;
         if (input.visible && has_content && gl_.valid()) {
             if (!st.renderer)
                 st.renderer = std::make_unique<SlideRenderer>(
-                    hello_.design_w, hello_.design_h, hello_.dpi_scale, atlas_, big_font_);
+                    hello_.design_w, hello_.design_h, hello_.dpi_scale, atlas_,
+                    big_font_, dmabuf ? ipc::kBuffersPerSlide : 1);
             int b = st.renderer->valid() ? st.ring.acquire() : ipc::BufferRing::kInvalid;
+            if (b != ipc::BufferRing::kInvalid &&
+                !announceBuffer(st, input.slide, static_cast<uint32_t>(b))) {
+                st.ring.release(static_cast<uint32_t>(b));
+                b = ipc::BufferRing::kInvalid;
+            }
             if (b != ipc::BufferRing::kInvalid) {
-                ShmBuffer &buf = st.buffers[b];
-                size_t bytes = size_t(hello_.design_w) * hello_.design_h * 4;
-                bool announce = !buf.valid();
-                if (announce && !buf.create(bytes)) {
-                    st.ring.release(static_cast<uint32_t>(b));
-                    b = ipc::BufferRing::kInvalid;
-                }
-                if (b != ipc::BufferRing::kInvalid) {
-                    if (announce) {
-                        ipc::TextureAnnounceMsg ann{};
-                        ann.slide = input.slide;
-                        ann.buffer_index = static_cast<uint32_t>(b);
-                        ann.transport = ipc::kTransportShm;
-                        ann.width = hello_.design_w;
-                        ann.height = hello_.design_h;
-                        ann.fourcc = ipc::kFourccAbgr8888;
-                        ann.num_planes = 1;
-                        ann.stride[0] = hello_.design_w * 4;
-                        int fd = buf.fd();
-                        send_(ipc::MsgType::TextureAnnounce, &ann, sizeof(ann), &fd, 1);
-                    }
-                    slide_events.clear();
-                    for (const ipc::InputEvent &e : ev.events)
-                        if (e.slide == input.slide)
-                            slide_events.push_back(e);
-                    SlideRenderer::Result rr = st.renderer->render(
-                        st.src->function, st.src->value, ev.frame.time,
-                        ev.frame.delta_time, input, slide_events);
-                    st.renderer->readPixels(buf.map());
-                    r.buffer_index = static_cast<uint32_t>(b);
-                    r.rendered = rr.rendered || !rr.exception.empty();
-                    r.want_capture_mouse = rr.want_capture_mouse;
-                    r.want_capture_keyboard = rr.want_capture_keyboard;
-                    r.want_text_input = rr.want_text_input;
-                    exception = rr.exception;
-                }
+                dmabuf = transport_ == ipc::kTransportDmabuf; // may have fallen back
+                slide_events.clear();
+                for (const ipc::InputEvent &e : ev.events)
+                    if (e.slide == input.slide)
+                        slide_events.push_back(e);
+                SlideRenderer::Result rr = st.renderer->render(
+                    st.src->function, st.src->value, ev.frame.time,
+                    ev.frame.delta_time, input, slide_events,
+                    dmabuf ? static_cast<uint32_t>(b) : 0);
+                if (dmabuf)
+                    glFinish(); // implicit dma-buf sync; fence FDs in step 6
+                else
+                    st.renderer->readPixels(0, st.buffers[b].map());
+                r.buffer_index = static_cast<uint32_t>(b);
+                r.rendered = rr.rendered || !rr.exception.empty();
+                r.want_capture_mouse = rr.want_capture_mouse;
+                r.want_capture_keyboard = rr.want_capture_keyboard;
+                r.want_text_input = rr.want_text_input;
+                exception = rr.exception;
             }
         }
 

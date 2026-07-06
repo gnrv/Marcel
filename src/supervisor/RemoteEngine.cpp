@@ -3,7 +3,9 @@
 #include "Presentation.h"
 #include "ipc/Protocol.h"
 #include "ipc/Serialize.h"
+#include "supervisor/TextureImport.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -89,6 +91,11 @@ void RemoteEngine::pump(double t)
     if (proc_.running() && proc_.reap()) {
         killing_ = false;
         frame_outstanding_ = false; // died mid-frame; textures keep the last image
+        // The next worker generation starts with all-free rings; releases
+        // aimed at the dead one are meaningless.
+        release_after_swap_.clear();
+        for (auto &[slide, stream] : streams_)
+            stream.front = -1;
         logic_.onWorkerExit(t);
         applyPoison(logic_.takePoisonedSlide());
     }
@@ -108,7 +115,7 @@ void RemoteEngine::pump(double t)
     case supervisor::Action::Spawn:
         if (proc_.spawn()) {
             logic_.onSpawned(t);
-            ipc::HelloMsg hello{ipc::kProtocolVersion, ipc::kTransportShm,
+            ipc::HelloMsg hello{ipc::kProtocolVersion, transport_caps_,
                                 settings_.dpi_scale, settings_.design_w, settings_.design_h};
             proc_.channel().send(ipc::MsgType::Hello, &hello, sizeof(hello));
             // Everything previously submitted died with the old interpreter;
@@ -222,18 +229,43 @@ void RemoteEngine::handleMessage(ipc::Message &m, double t)
 void RemoteEngine::handleTextureAnnounce(ipc::Message &m)
 {
     ipc::TextureAnnounceMsg ann{};
-    if (!parse(m, ann))
+    if (!parse(m, ann) || ann.buffer_index >= ipc::kBuffersPerSlide) {
+        // Message's dtor closes any fds we don't take.
+        return;
+    }
+
+    if (ann.transport == ipc::kTransportDmabuf) {
+        int fds[ipc::kMaxFds] = {-1, -1, -1, -1};
+        uint32_t n = std::min(ann.num_planes, ipc::kMaxFds);
+        for (uint32_t i = 0; i < n; ++i)
+            fds[i] = m.takeFd(i);
+        Stream &s = streams_[ann.slide];
+        s.transport = ann.transport;
+        s.frame.w = ann.width;
+        s.frame.h = ann.height;
+        unsigned tex = texture_import::importDmabuf(ann, fds, n);
+        for (uint32_t i = 0; i < n; ++i)
+            if (fds[i] >= 0)
+                close(fds[i]); // the texture holds its own kernel reference
+        if (tex) {
+            unsigned &slot = s.buffer_tex[ann.buffer_index];
+            if (slot) {
+                GLuint old = slot;
+                glDeleteTextures(1, &old); // worker restarted; old gen buffer
+            }
+            slot = tex;
+        }
+        return;
+    }
+
+    if (ann.transport != ipc::kTransportShm || ann.num_planes != 1)
         return;
     int fd = m.takeFd(0);
     if (fd < 0)
         return;
-    if (ann.transport != ipc::kTransportShm ||
-        ann.buffer_index >= ipc::kBuffersPerSlide || ann.num_planes != 1) {
-        close(fd);
-        return;
-    }
 
     Stream &s = streams_[ann.slide];
+    s.transport = ann.transport;
     s.frame.w = ann.width;
     s.frame.h = ann.height;
 
@@ -274,29 +306,42 @@ void RemoteEngine::handleFrameDone(ipc::Message &m, double t)
             continue;
         Stream &s = it->second;
         RemoteSlideFrame &f = s.frame;
-        const ShmMapping &mp = s.maps[sr.buffer_index];
-        if (mp.ptr && f.w && f.h) {
-            if (!f.tex) {
-                GLuint tex = 0;
-                glGenTextures(1, &tex);
-                glBindTexture(GL_TEXTURE_2D, tex);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, f.w, f.h, 0,
-                             GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-                f.tex = tex;
+        if (s.transport == ipc::kTransportDmabuf) {
+            // Zero-copy: displaying is just pointing at the imported
+            // texture. The displaced front buffer is still sampled until
+            // this UI frame's swap — release it in postSwap().
+            if (s.buffer_tex[sr.buffer_index]) {
+                f.tex = s.buffer_tex[sr.buffer_index];
+                f.rendered_once = true;
+                if (s.front >= 0 && s.front != static_cast<int>(sr.buffer_index))
+                    release_after_swap_.push_back(
+                        {sr.slide, static_cast<uint32_t>(s.front)});
+                s.front = static_cast<int>(sr.buffer_index);
             }
-            glBindTexture(GL_TEXTURE_2D, f.tex);
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, f.w, f.h,
-                            GL_RGBA, GL_UNSIGNED_BYTE, mp.ptr);
-            glBindTexture(GL_TEXTURE_2D, 0);
-            f.rendered_once = true;
+        } else {
+            const ShmMapping &mp = s.maps[sr.buffer_index];
+            if (mp.ptr && f.w && f.h) {
+                if (!f.tex) {
+                    GLuint tex = 0;
+                    glGenTextures(1, &tex);
+                    glBindTexture(GL_TEXTURE_2D, tex);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, f.w, f.h, 0,
+                                 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                    f.tex = tex;
+                }
+                glBindTexture(GL_TEXTURE_2D, f.tex);
+                glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, f.w, f.h,
+                                GL_RGBA, GL_UNSIGNED_BYTE, mp.ptr);
+                glBindTexture(GL_TEXTURE_2D, 0);
+                f.rendered_once = true;
+            }
+            // SHM is a copy: the buffer is free the moment the upload returns.
+            ipc::BufferReleaseMsg rel{sr.slide, sr.buffer_index};
+            proc_.channel().send(ipc::MsgType::BufferRelease, &rel, sizeof(rel));
         }
-        // SHM is a copy: the buffer is free again the moment the upload
-        // returns (dma-buf in step 4 holds it until after the swap instead).
-        ipc::BufferReleaseMsg rel{sr.slide, sr.buffer_index};
-        proc_.channel().send(ipc::MsgType::BufferRelease, &rel, sizeof(rel));
 
         f.want_capture_mouse = sr.want_capture_mouse;
         f.want_capture_keyboard = sr.want_capture_keyboard;
@@ -306,6 +351,16 @@ void RemoteEngine::handleFrameDone(ipc::Message &m, double t)
         if (kit != known_.end() && kit->second)
             kit->second->exception = exception; // empty clears a fixed slide
     }
+}
+
+void RemoteEngine::postSwap()
+{
+    if (release_after_swap_.empty())
+        return;
+    if (proc_.running())
+        for (const ipc::BufferReleaseMsg &rel : release_after_swap_)
+            proc_.channel().send(ipc::MsgType::BufferRelease, &rel, sizeof(rel));
+    release_after_swap_.clear();
 }
 
 const RemoteSlideFrame *RemoteEngine::slideFrame(int slide) const

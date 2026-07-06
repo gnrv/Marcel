@@ -35,6 +35,7 @@
 #include "engine/ClingEngine.h"
 #include "supervisor/RemoteEngine.h"
 #include "supervisor/SlideView.h"
+#include "supervisor/TextureImport.h"
 #include "render/UiFonts.h"
 
 #include <memory>
@@ -294,11 +295,21 @@ int main(int argc, char **argv) {
     }
     printf("Content scale: %f\n", dpi_scale);
 
-    // Create window with graphics context
+    // Create window with graphics context. EGL first: importing the
+    // worker's dma-buf frames needs an EGLDisplay (step 4 of docs/plans/
+    // client-server-refactor.md). GLX fallback keeps working with the shm
+    // transport.
     ImVec2 window_size{ 16*window_height*window_size_scale_factor/10, window_height*window_size_scale_factor };
+    glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
     GLFWwindow* window = glfwCreateWindow(window_size.x,
                                           window_size.y,
                                           "Marcel", NULL, NULL);
+    if (window == NULL) {
+        fprintf(stderr, "EGL context failed, retrying with the native API "
+                        "(GLX) — dma-buf texture sharing disabled\n");
+        glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_NATIVE_CONTEXT_API);
+        window = glfwCreateWindow(window_size.x, window_size.y, "Marcel", NULL, NULL);
+    }
     if (window == NULL)
         return 1;
     g_settings.window = window;
@@ -306,6 +317,21 @@ int main(int argc, char **argv) {
     g_settings.window_h = window_size.y;
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); // Enable vsync
+
+    // Advertise what this context can display before the worker spawns
+    // (lazily, on the first frame). --transport=shm forces the fallback.
+    if (remote_engine) {
+        bool force_shm = false;
+        for (int i = 1; i < argc; ++i)
+            if (std::string(argv[i]) == "--transport=shm")
+                force_shm = true;
+        uint32_t caps = ipc::kTransportShm;
+        if (!force_shm && texture_import::dmabufAvailable())
+            caps |= ipc::kTransportDmabuf;
+        printf("Texture transport caps: %s\n",
+               caps & ipc::kTransportDmabuf ? "dma-buf + shm" : "shm");
+        remote_engine->setTransportCaps(caps);
+    }
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -903,6 +929,10 @@ int main(int argc, char **argv) {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
+        // The swap retired last frame's dma-buf front buffers; hand them
+        // back to the worker's rings.
+        if (remote_engine)
+            remote_engine->postSwap();
     }
 
     // Get the window position and size, store to settings
