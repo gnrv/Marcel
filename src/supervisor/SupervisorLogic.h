@@ -59,6 +59,11 @@ public:
     void onCompileBusy(int slide, double now);
     void onCompileResult(int slide, double now);
 
+    // Manual "Restart worker" (toolbar button / crash panel). Clean slate:
+    // clears give-up and the crash-storm/backoff history, then kills a
+    // running worker (via update() -> Kill) or arms an immediate spawn.
+    void requestRestart(double now);
+
     // Once per UI frame. A returned Spawn/Kill is emitted exactly once; the
     // driver must follow up with onSpawned()/onWorkerExit().
     Action update(double now);
@@ -83,6 +88,7 @@ private:
     bool spawned_ = false;   // a worker process exists
     bool handshake_ = false; // HelloAck seen
     bool killing_ = false;   // Kill emitted, waiting for onWorkerExit
+    bool restart_requested_ = false; // manual restart: emit one Kill
     bool gave_up_ = false;
     bool spawn_pending_ = true; // in backoff, spawn due at spawn_time_
     double spawn_time_ = 0.0;

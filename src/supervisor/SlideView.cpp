@@ -15,6 +15,19 @@ void SlideView::draw(RemoteEngine &engine, int slide, const ImVec2 &size)
         // The worker's glReadPixels rows are bottom-up: flip via UVs.
         ImGui::Image(static_cast<ImTextureID>(f->tex), size,
                      ImVec2(0, 1), ImVec2(1, 0));
+        if (!engine.workerRunning()) {
+            // Stale frame while the worker is down: dim it and say why.
+            ImDrawList *dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y),
+                              IM_COL32(0, 0, 0, 128));
+            const char *msg = engine.gaveUp()
+                                  ? "worker crashed repeatedly — see crash panel"
+                                  : "restarting worker...";
+            ImVec2 ts = ImGui::CalcTextSize(msg);
+            dl->AddText(ImVec2(pos.x + (size.x - ts.x) * 0.5f,
+                               pos.y + (size.y - ts.y) * 0.5f),
+                        IM_COL32(255, 255, 255, 220), msg);
+        }
     } else {
         ImGui::Dummy(size);
         const char *msg = engine.gaveUp() ? "worker crashed repeatedly (see stderr)"

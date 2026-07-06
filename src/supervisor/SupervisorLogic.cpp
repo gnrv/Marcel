@@ -39,6 +39,7 @@ void SupervisorLogic::onWorkerExit(double now)
     spawned_ = false;
     handshake_ = false;
     killing_ = false;
+    restart_requested_ = false; // an exit is the restart half-done
     ping_outstanding_ = false;
     frame_outstanding_ = false;
     if (compile_busy_)
@@ -103,6 +104,21 @@ void SupervisorLogic::onCompileBusy(int slide, double now)
     compile_since_ = now;
 }
 
+void SupervisorLogic::requestRestart(double now)
+{
+    if (!started_)
+        return;
+    gave_up_ = false;
+    crash_times_.clear();
+    backoff_index_ = 0;
+    if (spawned_) {
+        restart_requested_ = true; // update() emits one Kill
+    } else {
+        spawn_pending_ = true;
+        spawn_time_ = now;
+    }
+}
+
 void SupervisorLogic::onCompileResult(int slide, double)
 {
     if (compile_busy_ && slide == busy_slide_) {
@@ -126,6 +142,12 @@ Action SupervisorLogic::update(double now)
 
     if (killing_)
         return Action::None; // waiting for onWorkerExit
+
+    if (restart_requested_) {
+        restart_requested_ = false;
+        killing_ = true;
+        return Action::Kill;
+    }
 
     bool overdue =
         (ping_outstanding_ && now - ping_sent_ > cfg_.pong_timeout) ||

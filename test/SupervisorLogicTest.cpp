@@ -36,6 +36,10 @@ class SupervisorLogicTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(testCompileResultRestoresFrameWatchdog);
     CPPUNIT_TEST(testPoisonedSlideAtDeath);
     CPPUNIT_TEST(testNoPoisonWithoutBusyCompile);
+    CPPUNIT_TEST(testManualRestartWhileRunning);
+    CPPUNIT_TEST(testManualRestartAfterGiveUp);
+    CPPUNIT_TEST(testManualRestartCutsBackoff);
+    CPPUNIT_TEST(testManualRestartClearsCrashHistory);
     CPPUNIT_TEST_SUITE_END();
 
     // Drive the logic through spawn -> running at time t.
@@ -227,6 +231,83 @@ public:
         s.onCompileResult(4, 1.5);
         s.onWorkerExit(2.0);
         CPPUNIT_ASSERT_EQUAL(supervisor::kNoSlide, s.takePoisonedSlide());
+    }
+
+    // "Restart worker" button: kill the running worker once, respawn with no
+    // backoff. The Kill is emitted through update() like any watchdog kill.
+    void testManualRestartWhileRunning()
+    {
+        SupervisorLogic s;
+        s.start(0.0);
+        spawnAndRun(s, 0.0);
+        s.requestRestart(5.0);
+        CPPUNIT_ASSERT(s.update(5.0) == Action::Kill);
+        CPPUNIT_ASSERT(s.update(5.1) == Action::None);  // one Kill only
+        s.onWorkerExit(5.2);
+        CPPUNIT_ASSERT(s.update(5.2) == Action::Spawn); // immediate, no backoff
+    }
+
+    // The crash panel's Restart button revives a gave-up supervisor.
+    void testManualRestartAfterGiveUp()
+    {
+        SupervisorLogic s;
+        s.start(0.0);
+        double t = 0.0;
+        for (int i = 0; i < 6; ++i) {
+            Action a = s.update(t);
+            if (a != Action::Spawn) {
+                t = s.nextSpawnTime();
+                a = s.update(t);
+            }
+            CPPUNIT_ASSERT(a == Action::Spawn);
+            s.onSpawned(t);
+            s.onWorkerExit(t);
+        }
+        CPPUNIT_ASSERT(s.gaveUp());
+        s.requestRestart(t + 1.0);
+        CPPUNIT_ASSERT(!s.gaveUp());
+        CPPUNIT_ASSERT(s.update(t + 1.0) == Action::Spawn);
+    }
+
+    // Restarting mid-backoff spawns now instead of at the backoff deadline.
+    void testManualRestartCutsBackoff()
+    {
+        SupervisorLogic s;
+        s.start(0.0);
+        // Two instant crashes put us in a 1 s backoff.
+        CPPUNIT_ASSERT(s.update(0.0) == Action::Spawn);
+        s.onSpawned(0.0);
+        s.onWorkerExit(0.0);
+        CPPUNIT_ASSERT(s.update(0.0) == Action::Spawn);
+        s.onSpawned(0.0);
+        s.onWorkerExit(0.0);
+        CPPUNIT_ASSERT(s.update(0.5) == Action::None); // backing off
+        s.requestRestart(0.5);
+        CPPUNIT_ASSERT(s.update(0.5) == Action::Spawn);
+    }
+
+    // A manual restart is a clean slate: prior crashes no longer count
+    // toward the storm cutoff or the backoff sequence.
+    void testManualRestartClearsCrashHistory()
+    {
+        SupervisorLogic s;
+        s.start(0.0);
+        CPPUNIT_ASSERT(s.update(0.0) == Action::Spawn);
+        s.onSpawned(0.0);
+        s.onWorkerExit(0.0);
+        CPPUNIT_ASSERT(s.update(0.0) == Action::Spawn);
+        s.onSpawned(0.0);
+        s.onHandshake(0.0);
+        s.requestRestart(1.0);
+        CPPUNIT_ASSERT_EQUAL(0, s.crashCount());
+        CPPUNIT_ASSERT(s.update(1.0) == Action::Kill);
+        s.onWorkerExit(1.0);
+        CPPUNIT_ASSERT(s.update(1.0) == Action::Spawn); // backoff restarted at 0
+        s.onSpawned(1.0);
+        s.onWorkerExit(1.0);
+        // Only the post-restart crashes count: still far from the storm cutoff.
+        CPPUNIT_ASSERT(!s.gaveUp());
+        CPPUNIT_ASSERT_EQUAL(2, s.crashCount());
     }
 };
 

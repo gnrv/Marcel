@@ -83,12 +83,34 @@ void RemoteEngine::dump(const char *what, const char *filter)
     fprintf(stderr, "RemoteEngine: interpreter dump ('%s') not supported yet\n", what);
 }
 
+void RemoteEngine::noteStderr(const std::string &text)
+{
+    constexpr size_t kTailMax = 64 * 1024;
+    stderr_tail_ += text;
+    if (stderr_tail_.size() > kTailMax)
+        stderr_tail_.erase(0, stderr_tail_.size() - kTailMax);
+}
+
+void RemoteEngine::drainWorkerStderr()
+{
+    std::string chunk;
+    if (proc_.drainStderr(chunk)) {
+        fwrite(chunk.data(), 1, chunk.size(), stderr); // live echo
+        noteStderr(chunk);
+    }
+}
+
 void RemoteEngine::pump(double t)
 {
     // New UI frame: SlideView re-reports every visible slide before endFrame.
     frame_inputs_.clear();
 
+    drainWorkerStderr();
     if (proc_.running() && proc_.reap()) {
+        drainWorkerStderr(); // last words, before the exit marker
+        std::string note = "[worker " + proc_.exitDescription() + "]\n";
+        fputs(note.c_str(), stderr);
+        noteStderr(note);
         killing_ = false;
         frame_outstanding_ = false; // died mid-frame; textures keep the last image
         // The next worker generation starts with all-free rings; releases

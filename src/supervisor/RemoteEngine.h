@@ -60,6 +60,15 @@ public:
 
     bool workerRunning() const { return logic_.running(); }
     bool gaveUp() const { return logic_.gaveUp(); }
+    int crashCount() const { return logic_.crashCount(); }
+
+    // Manual restart (toolbar / crash panel): kills a running worker and
+    // respawns immediately; also revives a gave-up supervisor.
+    void restartWorker() { logic_.requestRestart(now()); }
+
+    // Bounded tail of the worker's stderr (echoed live to ours as well),
+    // with "[worker exited: ...]" lines between generations. Crash panel food.
+    const std::string &stderrTail() const { return stderr_tail_; }
 
     // --- Remote rendering (step 3b) ---------------------------------------
     // Per UI frame: pump (via compileSetup) clears the input set, SlideView
@@ -98,6 +107,8 @@ private:
     };
 
     void pump(double now);
+    void drainWorkerStderr();
+    void noteStderr(const std::string &text);
     void handleMessage(ipc::Message &m, double now);
     void handleTextureAnnounce(ipc::Message &m);
     void handleFrameDone(ipc::Message &m, double now);
@@ -125,4 +136,6 @@ private:
     uint32_t transport_caps_ = ipc::kTransportShm;
     bool frame_outstanding_ = false;
     uint64_t next_frame_id_ = 1;
+
+    std::string stderr_tail_; // bounded ring of worker stderr
 };

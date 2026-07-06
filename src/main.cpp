@@ -145,7 +145,7 @@ std::string OpenFolderDialog() {
 }
 
 template<typename TToggleFullscreen, typename TOpenFolder>
-void RenderMenu(Editor &editor, std::string &exception_what, TToggleFullscreen ToggleFullscreen, TOpenFolder OpenFolder) {
+void RenderMenu(Editor &editor, std::string &exception_what, RemoteEngine *remote_engine, TToggleFullscreen ToggleFullscreen, TOpenFolder OpenFolder) {
     TextEditor &active_editor = editor.GetActiveEditor();
 
     if (ImGui::BeginMenu("File")) {
@@ -215,6 +215,13 @@ if (ImGui::BeginMenu("View")) {
     }
     if (ImGui::MenuItem("Toggle Full Screen", "F11")) {
         ToggleFullscreen();
+    }
+    if (remote_engine) {
+        ImGui::Separator();
+        // Always available: a compile-time hang (30 s timeout) or a wedged
+        // worker shouldn't require waiting for the watchdog.
+        if (ImGui::MenuItem("Restart Worker"))
+            remote_engine->restartWorker();
     }
     ImGui::EndMenu();
 }
@@ -505,7 +512,7 @@ int main(int argc, char **argv) {
             if (ImGui::Begin("Code", 0, flags | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar)) {
                 ImGui::PopStyleVar();
                 if (ImGui::BeginMenuBar()) {
-                    RenderMenu(editor, exception_what, ToggleFullscreen, OpenFolder);
+                    RenderMenu(editor, exception_what, remote_engine, ToggleFullscreen, OpenFolder);
 
                     ImGui::EndMenuBar();
                 }
@@ -782,6 +789,33 @@ int main(int argc, char **argv) {
                                          ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
         ImGuiViewport* viewport = ImGui::GetMainViewport();
 
+        // Crash panel: the supervisor hit the crash-storm cutoff and stopped
+        // respawning the worker. Show the stderr tail (the crash forensics)
+        // and offer a manual restart, which wipes the storm history.
+        if (remote_engine && remote_engine->gaveUp()) {
+            ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            ImGui::SetNextWindowSize(ImVec2(viewport->Size.x * 0.6f, viewport->Size.y * 0.5f), ImGuiCond_Appearing);
+            if (ImGui::Begin("Worker crashed", nullptr, ImGuiWindowFlags_NoCollapse)) {
+                ImGui::TextWrapped(
+                    "The slide worker crashed %d times in quick succession, so it is no "
+                    "longer being restarted automatically. The last crash is usually "
+                    "caused by the most recently edited slide (now marked and skipped). "
+                    "Recent worker stderr:", remote_engine->crashCount());
+                ImGui::Spacing();
+                if (ImGui::BeginChild("worker_stderr", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()),
+                                      ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar)) {
+                    const std::string &tail = remote_engine->stderrTail();
+                    ImGui::TextUnformatted(tail.data(), tail.data() + tail.size());
+                    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
+                        ImGui::SetScrollHereY(1.0f); // follow new output
+                }
+                ImGui::EndChild();
+                if (ImGui::Button(ICON_MDI_RESTART " Restart worker"))
+                    remote_engine->restartWorker();
+            }
+            ImGui::End();
+        }
+
         // Floating editor toolbar
         if (!presentation_mode) {
             // Toolbars don't steal focus! But I can't figure out how to make them not steal focus, so we just manually restore focus
@@ -848,7 +882,7 @@ int main(int argc, char **argv) {
 
                 ImGui::PopStyleVar();
                 if (ImGui::BeginPopup("HamburgerMenu")) {
-                    RenderMenu(editor, exception_what, ToggleFullscreen, OpenFolder);
+                    RenderMenu(editor, exception_what, remote_engine, ToggleFullscreen, OpenFolder);
                     ImGui::EndPopup();
                 }
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));

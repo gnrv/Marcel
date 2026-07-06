@@ -30,6 +30,15 @@ public:
     // reaped; also closes our channel end.
     bool reap();
 
+    // Non-blocking drain of the child's stderr pipe, appended to out.
+    // Returns bytes appended. Keeps working after reap() — the pipe closes
+    // itself once the last buffered bytes have been read (EOF).
+    size_t drainStderr(std::string &out);
+
+    // Human-readable cause of death ("exited with status 1", "killed by
+    // signal 11 (Segmentation fault)"). Set when reap() returns true.
+    const std::string &exitDescription() const { return exit_desc_; }
+
     bool running() const { return pid_ > 0; }
     pid_t pid() const { return pid_; }
     ipc::Channel &channel() { return chan_; }
@@ -37,5 +46,7 @@ public:
 private:
     std::string exe_;
     pid_t pid_ = -1;
+    int err_fd_ = -1; // read end of the child's stderr pipe
+    std::string exit_desc_;
     ipc::Channel chan_;
 };
