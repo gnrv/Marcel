@@ -7,6 +7,7 @@
 #include "Presentation.h"
 
 #include "imgui.h"
+#include "imgui_latex.h"
 #include "backends/imgui_impl_opengl3.h"
 
 #include <cstdio>
@@ -32,6 +33,10 @@ bool WorkerApp::initGL()
     atlas_ = IM_NEW(ImFontAtlas)();
     UiFonts fonts = LoadUiFonts(atlas_, hello_.dpi_scale);
     big_font_ = fonts.fira_sans_big;
+
+    // MicroTeX is process-global (Latex::init once), not per-context;
+    // without it every ImGui::Latex() draws "LateX has not been initialized".
+    ImGui::InitLatex();
 
     // Compile-time context: setup code historically ran inside main's
     // active ImGui frame and may call ImGui/GL at compile time, so compiles

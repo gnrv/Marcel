@@ -222,14 +222,19 @@ if (ImGui::BeginMenu("View")) {
 int main(int argc, char **argv) {
     std::filesystem::current_path(getExecutablePath());
 
-    // --engine=remote: compile in a supervised marcel_worker process (a
-    // crashing/hanging compile kills the worker, not the app). Default is
-    // the in-process engine until remote rendering lands (step 3b of
-    // docs/plans/client-server-refactor.md).
-    bool use_remote_engine = false;
-    for (int i = 1; i < argc; ++i)
-        if (std::string(argv[i]) == "--engine=remote")
-            use_remote_engine = true;
+    // Slides compile and render in a supervised marcel_worker process: a
+    // crashing or hanging slide kills the worker, not the app (docs/plans/
+    // client-server-refactor.md). --engine=inproc restores the historical
+    // in-process Cling engine (single process, no crash isolation).
+    bool use_remote_engine = true;
+    std::vector<char *> cling_argv; // our flags filtered out; Cling rejects unknowns
+    for (int i = 0; i < argc; ++i) {
+        std::string arg = i > 0 ? argv[i] : "";
+        if (arg == "--engine=inproc")
+            use_remote_engine = false;
+        else if (arg != "--engine=remote")
+            cling_argv.push_back(argv[i]);
+    }
     std::unique_ptr<SlideEngine> engine_owner;
     RemoteEngine *remote_engine = nullptr;
     if (use_remote_engine) {
@@ -237,7 +242,8 @@ int main(int argc, char **argv) {
         remote_engine = remote.get();
         engine_owner = std::move(remote);
     } else {
-        engine_owner = std::make_unique<ClingEngine>(argc, argv);
+        engine_owner = std::make_unique<ClingEngine>(static_cast<int>(cling_argv.size()),
+                                                     cling_argv.data());
     }
     SlideEngine &engine = *engine_owner;
     SlideView slide_view; // remote-engine slide display + input forwarding
