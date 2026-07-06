@@ -166,17 +166,19 @@ set(LIB_LINK rapidfuzz::rapidfuzz imgui GL glfw fmt::fmt nfd::nfd)
 target_link_libraries(${PROJECT_NAME}_lib PUBLIC ${LIB_LINK} ${PROJECT_NAME}_ipc)
 target_link_libraries(${PROJECT_NAME} PRIVATE ${PROJECT_NAME}_lib)
 
-# Worker process: owns Cling, supervised by marcel (--engine=remote).
-# Compile-only for now; rendering moves here in step 3b. Gets the same
-# Cling include dirs and JIT symbol-export flags as marcel — both move off
-# marcel entirely in step 6.
+# Worker process: owns Cling and headless (EGL) slide rendering, supervised
+# by marcel (--engine=remote). Gets the same Cling include dirs and JIT
+# symbol-export flags as marcel — both move off marcel entirely in step 6.
 add_executable(${PROJECT_NAME}_worker
     src/worker/worker_main.cpp
+    src/worker/WorkerApp.cpp
+    src/worker/HeadlessGL.cpp
+    src/worker/SlideRenderer.cpp
     src/engine/ClingEngine.cpp
 )
 target_include_directories(${PROJECT_NAME}_worker PRIVATE
     ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS} ${CLING_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME}_worker PRIVATE ${PROJECT_NAME}_lib ${PROJECT_NAME}_ipc ${LIBS})
+target_link_libraries(${PROJECT_NAME}_worker PRIVATE ${PROJECT_NAME}_lib ${PROJECT_NAME}_ipc ${LIBS} EGL)
 target_link_options(${PROJECT_NAME}_worker PRIVATE -Wl,--export-dynamic-symbol=*cling10printValue*, -Wl,--export-dynamic-symbol=*setValueNoAlloc*, -Wl,--export-dynamic-symbol=*setValueWithAlloc*, -Wl,--export-dynamic-symbol=*cling_runtime_internal_throwIfInvalidPointer*)
 if(USE_CUDA)
     target_compile_definitions(${PROJECT_NAME}_worker PRIVATE USE_CUDA=1

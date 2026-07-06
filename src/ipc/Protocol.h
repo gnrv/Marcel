@@ -34,6 +34,10 @@ constexpr uint32_t kMaxFds = 4;  // max dma-buf planes per TextureAnnounce
 constexpr uint32_t kTransportDmabuf = 1u << 0;
 constexpr uint32_t kTransportShm    = 1u << 1;
 
+// DRM_FORMAT_ABGR8888 ('AB24' little-endian): bytes R,G,B,A — matches what
+// glReadPixels(GL_RGBA, GL_UNSIGNED_BYTE) writes and glTexSubImage2D reads.
+constexpr uint32_t kFourccAbgr8888 = 0x34324241;
+
 enum class MsgType : uint32_t {
     // main -> worker
     Hello = 1, SetSource, FrameBegin, BufferRelease, ClipboardData, Ping, Shutdown,
