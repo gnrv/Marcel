@@ -2,17 +2,18 @@
 
 #include "SlideEngine.h"
 
+#include <map>
 #include <memory>
 
 namespace cling {
     class Interpreter;
+    class Transaction;
 }
 
-// In-process Cling implementation of SlideEngine. Owns the interpreter that
-// was historically a stack local in main() (src/main.cpp before the
-// client-server refactor). Compiled only into targets that link Cling
-// (marcel for now; marcel_worker later) — deliberately NOT part of
-// marcel_lib, so the tests don't need LLVM.
+// Cling implementation of SlideEngine. Owns the interpreter that was
+// historically a stack local in main() (src/main.cpp before the
+// client-server refactor). Compiled only into marcel_worker — the one
+// binary that links Cling/LLVM; deliberately NOT part of marcel_lib.
 class ClingEngine : public SlideEngine {
 public:
     // Builds the interpreter from the program's argc/argv (adds CUDA flags
@@ -27,4 +28,9 @@ public:
 
 private:
     std::unique_ptr<cling::Interpreter> interp_;
+    // Per-slide transaction of the last render evaluation, reused via
+    // reevaluate() on subsequent frames. Keyed by the SourceFile (stable:
+    // WorkerApp keeps one per slide); engine-side state, so SourceFile
+    // itself stays Cling-free.
+    std::map<const SourceFile *, cling::Transaction *> render_tx_;
 };

@@ -32,7 +32,6 @@
 
 #include "system/sys_util.h"
 #include "system/DpiInfo.h"
-#include "engine/ClingEngine.h"
 #include "supervisor/RemoteEngine.h"
 #include "supervisor/SlideView.h"
 #include "supervisor/TextureImport.h"
@@ -232,29 +231,15 @@ int main(int argc, char **argv) {
 
     // Slides compile and render in a supervised marcel_worker process: a
     // crashing or hanging slide kills the worker, not the app (docs/plans/
-    // client-server-refactor.md). --engine=inproc restores the historical
-    // in-process Cling engine (single process, no crash isolation).
-    bool use_remote_engine = true;
-    std::vector<char *> cling_argv; // our flags filtered out; Cling rejects unknowns
-    for (int i = 0; i < argc; ++i) {
-        std::string arg = i > 0 ? argv[i] : "";
-        if (arg == "--engine=inproc")
-            use_remote_engine = false;
-        else if (arg != "--engine=remote")
-            cling_argv.push_back(argv[i]);
-    }
-    std::unique_ptr<SlideEngine> engine_owner;
-    RemoteEngine *remote_engine = nullptr;
-    if (use_remote_engine) {
-        auto remote = std::make_unique<RemoteEngine>(getExecutablePath() + "/marcel_worker");
-        remote_engine = remote.get();
-        engine_owner = std::move(remote);
-    } else {
-        engine_owner = std::make_unique<ClingEngine>(static_cast<int>(cling_argv.size()),
-                                                     cling_argv.data());
-    }
-    SlideEngine &engine = *engine_owner;
-    SlideView slide_view; // remote-engine slide display + input forwarding
+    // client-server-refactor.md). Since step 6 this binary has no Cling —
+    // the in-process engine lives on only in the worker.
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--engine=inproc")
+            fprintf(stderr, "--engine=inproc was removed in the client-server "
+                            "refactor; slides always run in marcel_worker\n");
+    RemoteEngine engine(getExecutablePath() + "/marcel_worker");
+    RemoteEngine *remote_engine = &engine; // name kept from the dual-engine era
+    SlideView slide_view; // slide display + input forwarding
 
     // Setup window
     auto start_glfw = std::chrono::high_resolution_clock::now();
@@ -327,7 +312,7 @@ int main(int argc, char **argv) {
 
     // Advertise what this context can display before the worker spawns
     // (lazily, on the first frame). --transport=shm forces the fallback.
-    if (remote_engine) {
+    {
         bool force_shm = false;
         for (int i = 1; i < argc; ++i)
             if (std::string(argv[i]) == "--transport=shm")
@@ -337,7 +322,7 @@ int main(int argc, char **argv) {
             caps |= ipc::kTransportDmabuf;
         printf("Texture transport caps: %s\n",
                caps & ipc::kTransportDmabuf ? "dma-buf + shm" : "shm");
-        remote_engine->setTransportCaps(caps);
+        engine.setTransportCaps(caps);
     }
 
     // Setup Dear ImGui context
@@ -737,24 +722,11 @@ int main(int argc, char **argv) {
                     exception_what = e.what();
                     ImGui::OpenPopup("Exception");
                 }
-                if (remote_engine) {
-                    // The slide ran in the worker; show its latest frame.
-                    // Offscreen slides are skipped so the worker only
-                    // renders what's on screen.
-                    if (slide_visible)
-                        slide_view.draw(*remote_engine, i, slide_size);
-                } else {
-                    ImGuiErrorRecoveryState state;
-                    ImGui::ErrorRecoveryStoreState(&state);
-                    try {
-                        if (slide_src.function) slide_src.function();
-                        else                    ImGui::Text("%s", slide_src.value.c_str());
-                    } catch (std::exception& e) {
-                        ImGui::ErrorRecoveryTryToRecoverState(&state);
-                        slide_src.exception = e.what();
-                        //std::cerr << "Script exception in slide " << i << ": " << e.what() << std::endl;
-                    }
-                }
+                // The slide runs in the worker; show its latest frame.
+                // Offscreen slides are skipped so the worker only renders
+                // what's on screen.
+                if (slide_visible)
+                    slide_view.draw(*remote_engine, i, slide_size);
                 ImGui::PopScale();
                 ImGui::PopFont();
                 ImGui::EndAnimated();
@@ -780,8 +752,7 @@ int main(int argc, char **argv) {
 
         // All visible slides have reported their input; ship one FrameBegin
         // to the worker (paced: skipped while the previous one is pending).
-        if (remote_engine)
-            slide_view.endFrame(*remote_engine);
+        slide_view.endFrame(engine);
 
         // 3. Overlays
         ImGuiWindowFlags overlay_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
@@ -965,8 +936,7 @@ int main(int argc, char **argv) {
         glfwSwapBuffers(window);
         // The swap retired last frame's dma-buf front buffers; hand them
         // back to the worker's rings.
-        if (remote_engine)
-            remote_engine->postSwap();
+        engine.postSwap();
     }
 
     // Get the window position and size, store to settings

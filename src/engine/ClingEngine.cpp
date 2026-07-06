@@ -338,20 +338,21 @@ void ClingEngine::compileSlide(SourceFile &slide_src)
                         expr,
                         reinterpret_cast<uintptr_t>(ptr));
                 }
-                slide_src.last_transaction = nullptr;
+                render_tx_[&slide_src] = nullptr;
                 slide_src.function = [this, code, &slide_src]() {
                     cling::Interpreter &interp = *interp_;
                     cling::Value V;
-                    if (slide_src.last_transaction)
-                        interp.reevaluate(slide_src.last_transaction, nullptr);
+                    cling::Transaction *&tx = render_tx_[&slide_src];
+                    if (tx)
+                        interp.reevaluate(tx, nullptr);
                     else {
                         CaptureStderr cap([&](const char* buf, size_t szbuf) {
                             extractMarkers(slide_src, buf, szbuf, -1);
                         });
-                        auto result = interp.evaluate(code, V, &slide_src.last_transaction);
+                        auto result = interp.evaluate(code, V, &tx);
                         if (result != cling::Interpreter::kSuccess) {
                             // If we failed to evaluate, kill this function to prevent further calls
-                            slide_src.last_transaction = nullptr;
+                            tx = nullptr;
                             slide_src.function = nullptr;
                         }
                     }

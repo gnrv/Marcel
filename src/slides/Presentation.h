@@ -13,10 +13,6 @@
 
 #include <imgui.h>
 
-namespace cling {
-    class Transaction;
-}
-
 class SourceFile {
     std::string src;
     bool needs_reload_check{ false };
@@ -28,7 +24,6 @@ public:
     bool validated{ false };
     bool compiled{ false };
     bool syntax_error{ false };
-    cling::Transaction *last_transaction{ nullptr };
     // Remote (out-of-process) compilation state, used by RemoteEngine.
     uint64_t compile_request_id{ 0 };
     bool compile_in_flight{ false };

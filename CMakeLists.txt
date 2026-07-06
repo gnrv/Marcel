@@ -118,20 +118,16 @@ add_library(${PROJECT_NAME}_lib
     ${source_list}
 )
 
-# Main program executable
+# Main program executable. No Cling since step 6 of the client-server
+# refactor: the interpreter (and LLVM) live only in marcel_worker, which
+# also sidesteps the WSL2 GL-driver symbol clash with system LLVM.
 set(LIBS clingInterpreter clingMetaProcessor clingUtils)
 
 add_executable(${PROJECT_NAME}
 src/main.cpp
-src/engine/ClingEngine.cpp
 ${APP_ICON_RESOURCE_WINDOWS}
 )
-target_link_libraries(${PROJECT_NAME} PUBLIC ${LIBS})
 
-# Include directories
-target_include_directories(${PROJECT_NAME} PUBLIC ${LLVM_INCLUDE_DIRS})
-target_include_directories(${PROJECT_NAME} PUBLIC ${CLANG_INCLUDE_DIRS})
-target_include_directories(${PROJECT_NAME} PUBLIC ${CLING_INCLUDE_DIRS})
 if(USE_CUDA)
         target_compile_definitions(${PROJECT_NAME} PRIVATE USE_CUDA=1)
         # If we use CUDA, we need to link against the CUDA libraries
@@ -151,24 +147,14 @@ if(USE_CUDA)
     target_compile_definitions(${PROJECT_NAME} PRIVATE CUDA_LIB_DIR="${CUDAToolkit_LIBRARY_DIR}")
 endif()
 
-# Cling JITted code needs to be able to resolve symbols from its own executable
-# OR we can turn off value printing in cling
-# UPDATE: turns out we need some of these symbols just to get a cling::Value out of
-#         the interpreter
-#set_target_properties(${PROJECT_NAME} PROPERTIES ENABLE_EXPORTS 1)
-# We can use a more targeted option that exists in mold (inspired by one in gold)
-# and use --export-dynamic-symbol=*setValueNoAlloc* to export only the
-# relevant symbols and avoid conflict with system LLVM used by WSL2 GL drivers
-target_link_options(${PROJECT_NAME} PRIVATE -Wl,--export-dynamic-symbol=*cling10printValue*, -Wl,--export-dynamic-symbol=*setValueNoAlloc*, -Wl,--export-dynamic-symbol=*setValueWithAlloc*, -Wl,--export-dynamic-symbol=*cling_runtime_internal_throwIfInvalidPointer*)
-
 set(LIB_LINK rapidfuzz::rapidfuzz imgui GL EGL glfw fmt::fmt nfd::nfd)
 #target_link_libraries(${PROJECT_NAME}_lib PUBLIC someObjs)
 target_link_libraries(${PROJECT_NAME}_lib PUBLIC ${LIB_LINK} ${PROJECT_NAME}_ipc)
 target_link_libraries(${PROJECT_NAME} PRIVATE ${PROJECT_NAME}_lib)
 
 # Worker process: owns Cling and headless (EGL) slide rendering, supervised
-# by marcel (--engine=remote). Gets the same Cling include dirs and JIT
-# symbol-export flags as marcel — both move off marcel entirely in step 6.
+# by marcel. The only binary linking Cling/LLVM; the JIT needs the
+# export-dynamic symbols below to resolve value-printing helpers.
 add_executable(${PROJECT_NAME}_worker
     src/worker/worker_main.cpp
     src/worker/WorkerApp.cpp
