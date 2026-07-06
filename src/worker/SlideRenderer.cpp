@@ -185,7 +185,10 @@ SlideRenderer::Result SlideRenderer::render(const std::function<void()> &fn,
     ImGui::End();
     ImGui::Render();
 
-    result.want_capture_mouse = io.WantCaptureMouse;
+    // Not io.WantCaptureMouse: the fullscreen host window makes that true for
+    // any position, which would steal the deck's scroll wheel. What main
+    // needs to know is "is the mouse on an interactive widget in the slide".
+    result.want_capture_mouse = ctx_->HoveredId != 0 || ctx_->ActiveId != 0;
     result.want_capture_keyboard = io.WantCaptureKeyboard;
     result.want_text_input = io.WantTextInput;
 

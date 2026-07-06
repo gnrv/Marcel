@@ -34,6 +34,7 @@
 #include "system/DpiInfo.h"
 #include "engine/ClingEngine.h"
 #include "supervisor/RemoteEngine.h"
+#include "supervisor/SlideView.h"
 #include "render/UiFonts.h"
 
 #include <memory>
@@ -230,11 +231,16 @@ int main(int argc, char **argv) {
         if (std::string(argv[i]) == "--engine=remote")
             use_remote_engine = true;
     std::unique_ptr<SlideEngine> engine_owner;
-    if (use_remote_engine)
-        engine_owner = std::make_unique<RemoteEngine>(getExecutablePath() + "/marcel_worker");
-    else
+    RemoteEngine *remote_engine = nullptr;
+    if (use_remote_engine) {
+        auto remote = std::make_unique<RemoteEngine>(getExecutablePath() + "/marcel_worker");
+        remote_engine = remote.get();
+        engine_owner = std::move(remote);
+    } else {
         engine_owner = std::make_unique<ClingEngine>(argc, argv);
+    }
     SlideEngine &engine = *engine_owner;
+    SlideView slide_view; // remote-engine slide display + input forwarding
 
     // Setup window
     auto start_glfw = std::chrono::high_resolution_clock::now();
@@ -680,7 +686,7 @@ int main(int argc, char **argv) {
                     ImGui::GetWindowDrawList()->AddRect(top_left, bottom_left + ImVec2(slide_size.x, 0), color);
                 }
 
-                ImGui::BeginChild("Slide", slide_size, false);
+                bool slide_visible = ImGui::BeginChild("Slide", slide_size, false);
                 ImGui::BeginAnimated(animate);
                 ImGui::PushFont(fira_sans_big);
                 ImGui::PushScale(slide_scale);
@@ -692,15 +698,23 @@ int main(int argc, char **argv) {
                     exception_what = e.what();
                     ImGui::OpenPopup("Exception");
                 }
-                ImGuiErrorRecoveryState state;
-                ImGui::ErrorRecoveryStoreState(&state);
-                try {
-                    if (slide_src.function) slide_src.function();
-                    else                    ImGui::Text("%s", slide_src.value.c_str());
-                } catch (std::exception& e) {
-                    ImGui::ErrorRecoveryTryToRecoverState(&state);
-                    slide_src.exception = e.what();
-                    //std::cerr << "Script exception in slide " << i << ": " << e.what() << std::endl;
+                if (remote_engine) {
+                    // The slide ran in the worker; show its latest frame.
+                    // Offscreen slides are skipped so the worker only
+                    // renders what's on screen.
+                    if (slide_visible)
+                        slide_view.draw(*remote_engine, i, slide_size);
+                } else {
+                    ImGuiErrorRecoveryState state;
+                    ImGui::ErrorRecoveryStoreState(&state);
+                    try {
+                        if (slide_src.function) slide_src.function();
+                        else                    ImGui::Text("%s", slide_src.value.c_str());
+                    } catch (std::exception& e) {
+                        ImGui::ErrorRecoveryTryToRecoverState(&state);
+                        slide_src.exception = e.what();
+                        //std::cerr << "Script exception in slide " << i << ": " << e.what() << std::endl;
+                    }
                 }
                 ImGui::PopScale();
                 ImGui::PopFont();
@@ -724,6 +738,11 @@ int main(int argc, char **argv) {
         ImGui::End();
         ImGui::PopStyleColor();
         ImGui::PopStyleVar(5);
+
+        // All visible slides have reported their input; ship one FrameBegin
+        // to the worker (paced: skipped while the previous one is pending).
+        if (remote_engine)
+            slide_view.endFrame(*remote_engine);
 
         // 3. Overlays
         ImGuiWindowFlags overlay_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |

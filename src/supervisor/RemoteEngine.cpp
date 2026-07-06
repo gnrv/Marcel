@@ -8,6 +8,10 @@
 #include <cstdio>
 #include <cstring>
 
+#include <GL/gl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
 namespace {
 
 double steadySeconds()
@@ -33,7 +37,18 @@ RemoteEngine::RemoteEngine(std::string worker_exe, Settings settings)
     logic_.start(0.0);
 }
 
-RemoteEngine::~RemoteEngine() = default;
+RemoteEngine::~RemoteEngine()
+{
+    // GL textures are left to die with the context; the mappings are ours.
+    for (auto &[slide, stream] : streams_) {
+        for (auto &mp : stream.maps) {
+            if (mp.ptr)
+                munmap(mp.ptr, mp.size);
+            if (mp.fd >= 0)
+                close(mp.fd);
+        }
+    }
+}
 
 double RemoteEngine::now() const
 {
@@ -68,8 +83,12 @@ void RemoteEngine::dump(const char *what, const char *filter)
 
 void RemoteEngine::pump(double t)
 {
+    // New UI frame: SlideView re-reports every visible slide before endFrame.
+    frame_inputs_.clear();
+
     if (proc_.running() && proc_.reap()) {
         killing_ = false;
+        frame_outstanding_ = false; // died mid-frame; textures keep the last image
         logic_.onWorkerExit(t);
         applyPoison(logic_.takePoisonedSlide());
     }
@@ -186,11 +205,153 @@ void RemoteEngine::handleMessage(ipc::Message &m, double t)
         sf->function = nullptr;
         break;
     }
+    case ipc::MsgType::TextureAnnounce:
+        handleTextureAnnounce(m);
+        break;
+    case ipc::MsgType::FrameDone:
+        handleFrameDone(m, t);
+        break;
     case ipc::MsgType::LogText:
         fwrite(m.payload.data(), 1, m.payload.size(), stderr);
         break;
     default:
         break;
+    }
+}
+
+void RemoteEngine::handleTextureAnnounce(ipc::Message &m)
+{
+    ipc::TextureAnnounceMsg ann{};
+    if (!parse(m, ann))
+        return;
+    int fd = m.takeFd(0);
+    if (fd < 0)
+        return;
+    if (ann.transport != ipc::kTransportShm ||
+        ann.buffer_index >= ipc::kBuffersPerSlide || ann.num_planes != 1) {
+        close(fd);
+        return;
+    }
+
+    Stream &s = streams_[ann.slide];
+    s.frame.w = ann.width;
+    s.frame.h = ann.height;
+
+    ShmMapping &mp = s.maps[ann.buffer_index];
+    if (mp.ptr)
+        munmap(mp.ptr, mp.size); // replaced (worker restarted)
+    if (mp.fd >= 0)
+        close(mp.fd);
+    mp.fd = fd;
+    mp.size = size_t(ann.stride[0]) * ann.height;
+    mp.ptr = mmap(nullptr, mp.size, PROT_READ, MAP_SHARED, fd, 0);
+    if (mp.ptr == MAP_FAILED) {
+        perror("RemoteEngine: mmap frame buffer");
+        close(mp.fd);
+        mp = ShmMapping{};
+    }
+}
+
+void RemoteEngine::handleFrameDone(ipc::Message &m, double t)
+{
+    frame_outstanding_ = false;
+    logic_.onFrameDone(t);
+
+    ipc::Reader r(m.payload.data(), m.payload.size());
+    ipc::FrameDoneMsg done{};
+    if (!r.read(done))
+        return;
+    for (uint32_t i = 0; i < done.num_slides && r.ok(); ++i) {
+        ipc::SlideFrameResult sr{};
+        std::string exception;
+        if (!r.read(sr) || !r.readString(exception, sr.exception_len))
+            break;
+        if (!sr.rendered)
+            continue; // skipped (invisible, no content, or ring starved)
+
+        auto it = streams_.find(sr.slide);
+        if (it == streams_.end() || sr.buffer_index >= ipc::kBuffersPerSlide)
+            continue;
+        Stream &s = it->second;
+        RemoteSlideFrame &f = s.frame;
+        const ShmMapping &mp = s.maps[sr.buffer_index];
+        if (mp.ptr && f.w && f.h) {
+            if (!f.tex) {
+                GLuint tex = 0;
+                glGenTextures(1, &tex);
+                glBindTexture(GL_TEXTURE_2D, tex);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, f.w, f.h, 0,
+                             GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                f.tex = tex;
+            }
+            glBindTexture(GL_TEXTURE_2D, f.tex);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, f.w, f.h,
+                            GL_RGBA, GL_UNSIGNED_BYTE, mp.ptr);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            f.rendered_once = true;
+        }
+        // SHM is a copy: the buffer is free again the moment the upload
+        // returns (dma-buf in step 4 holds it until after the swap instead).
+        ipc::BufferReleaseMsg rel{sr.slide, sr.buffer_index};
+        proc_.channel().send(ipc::MsgType::BufferRelease, &rel, sizeof(rel));
+
+        f.want_capture_mouse = sr.want_capture_mouse;
+        f.want_capture_keyboard = sr.want_capture_keyboard;
+        f.want_text_input = sr.want_text_input;
+
+        auto kit = known_.find(sr.slide);
+        if (kit != known_.end() && kit->second)
+            kit->second->exception = exception; // empty clears a fixed slide
+    }
+}
+
+const RemoteSlideFrame *RemoteEngine::slideFrame(int slide) const
+{
+    auto it = streams_.find(slide);
+    return it != streams_.end() ? &it->second.frame : nullptr;
+}
+
+void RemoteEngine::setSlideInput(const ipc::SlideInput &in)
+{
+    frame_inputs_[in.slide] = in;
+}
+
+void RemoteEngine::addInputEvent(const ipc::InputEvent &ev)
+{
+    frame_events_.push_back(ev);
+}
+
+void RemoteEngine::endFrame(double time, float delta_time)
+{
+    if (!proc_.running() || !logic_.running() || frame_outstanding_)
+        return; // coalesce: inputs are rebuilt next frame, events accumulate
+    if (frame_inputs_.empty()) {
+        frame_events_.clear(); // nothing visible; drop stale events
+        return;
+    }
+
+    ipc::FrameBeginMsg fb{};
+    fb.frame_id = next_frame_id_++;
+    fb.time = time;
+    fb.delta_time = delta_time;
+    fb.num_slides = static_cast<uint32_t>(frame_inputs_.size());
+    fb.num_events = static_cast<uint32_t>(frame_events_.size());
+
+    ipc::Writer w;
+    w.append(fb);
+    for (const auto &[slide, in] : frame_inputs_)
+        w.append(in);
+    for (const ipc::InputEvent &ev : frame_events_)
+        w.append(ev);
+    if (w.size() > ipc::kMaxPayloadSize)
+        frame_events_.clear(); // absurd event backlog; drop rather than wedge
+    else if (proc_.channel().send(ipc::MsgType::FrameBegin, w.data(), w.size())) {
+        frame_outstanding_ = true;
+        logic_.onFrameBeginSent(now());
+        frame_events_.clear();
     }
 }
 
