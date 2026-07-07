@@ -31,6 +31,21 @@
 
 namespace {
 
+// True when the extracted result expression is just a (possibly
+// address-taken) identifier — e.g. "update" or "&update" — as opposed to a
+// self-contained expression like a lambda literal.
+bool isPlainName(const std::string &expr) {
+    std::string s = expr;
+    if (!s.empty() && s[0] == '&')
+        s = s.substr(1);
+    if (s.empty() || !(isalpha((unsigned char)s[0]) || s[0] == '_'))
+        return false;
+    for (char c : s)
+        if (!isalnum((unsigned char)c) && c != '_')
+            return false;
+    return true;
+}
+
 std::string exprToString(clang::Expr* expr, const clang::ASTContext& context) {
     clang::LangOptions langOpts;
     langOpts.CPlusPlus = true;
@@ -196,6 +211,15 @@ ClingEngine::ClingEngine(int argc, char **argv)
 
     // Tell cling to allow re-definitions
     interp.getRuntimeOptions().AllowRedefinition = true;
+
+    // Normalizer for slide result expressions: the extraction function may
+    // yield the callable itself (lambda literal) or a pointer to it (named
+    // lambda variable). compileSlide binds each slide's callable through
+    // this so both forms end up as a plain copy that can be invoked as f().
+    interp.declare("namespace __marcel {\n"
+                   "template <class T> auto callable(T v) { return v; }\n"
+                   "template <class T> auto callable(T *p) { return *p; }\n"
+                   "}\n");
 #ifdef USE_CUDA
     start = std::chrono::high_resolution_clock::now();
     auto ptx_interp = interp.getCUDACompiler()->getPTXInterpreter();
@@ -326,37 +350,70 @@ void ClingEngine::compileSlide(SourceFile &slide_src)
                 }
             }
             if (ptr && !expr.empty()) {
-                // If expr has the type pointer or reference to lambda:
-                std::string code = fmt::format(
-                    "(*reinterpret_cast<decltype({})>(0x{:x}))();",
-                    expr,
-                    reinterpret_cast<uintptr_t>(ptr));
-                // If expr has the type of the lambda:
-                if (is_record) {
-                    code = fmt::format(
-                        "auto similar_lambda = {}; (*reinterpret_cast<decltype(similar_lambda)*>(0x{:x}))();",
-                        expr,
-                        reinterpret_cast<uintptr_t>(ptr));
-                }
-                render_tx_[&slide_src] = nullptr;
-                slide_src.function = [this, code, &slide_src]() {
-                    cling::Interpreter &interp = *interp_;
-                    cling::Value V;
-                    cling::Transaction *&tx = render_tx_[&slide_src];
-                    if (tx)
-                        interp.reevaluate(tx, nullptr);
-                    else {
-                        CaptureStderr cap([&](const char* buf, size_t szbuf) {
-                            extractMarkers(slide_src, buf, szbuf, -1);
-                        });
-                        auto result = interp.evaluate(code, V, &tx);
-                        if (result != cling::Interpreter::kSuccess) {
-                            // If we failed to evaluate, kill this function to prevent further calls
-                            tx = nullptr;
-                            slide_src.function = nullptr;
-                        }
+                std::string code;
+                if (isPlainName(expr)) {
+                    // `expr` is the SOURCE TEXT of the slide's result
+                    // expression (e.g. "update"), and its meaning is only
+                    // guaranteed right now: with redefinition enabled, the
+                    // next slide's compile may shadow the same name. In the
+                    // worker, every slide compiles before any slide renders,
+                    // so resolving the name lazily at first render made each
+                    // slide that returned a variable named `update` execute
+                    // the LAST such slide's lambda (slide0 showed slide1).
+                    // Bind a per-slide copy of the callable immediately;
+                    // rendering calls the copy. (__marcel::callable
+                    // normalizes pointer-to-lambda vs value.)
+                    std::string alias = "__marcel_slide_fn_";
+                    for (char c : slide_src.path.stem().string())
+                        alias += (isalnum((unsigned char)c) ? c : '_');
+                    std::string bind =
+                        fmt::format("auto {} = __marcel::callable(({}));", alias, expr);
+                    if (interp.process(bind, nullptr, nullptr,
+                                       true /* disableValuePrinting */) ==
+                        cling::Interpreter::kSuccess)
+                        code = alias + "();";
+                    // else: not bindable; fall through to value printing
+                } else {
+                    // Literal result expression (e.g. a lambda written
+                    // directly at the end of the slide). Literals can't be
+                    // shadowed by other slides, so re-parsing at render time
+                    // is safe here — and it's required: binding a copy of a
+                    // literal lambda in one transaction and calling it from
+                    // a later one crashes clang's Sema
+                    // (DefineImplicitLambdaToFunctionPointerConversion on a
+                    // null FunctionDecl).
+                    code = fmt::format("(*reinterpret_cast<decltype({})>(0x{:x}))();",
+                                       expr, (uintptr_t)ptr);
+                    if (is_record) {
+                        // decltype of a lambda literal names a distinct
+                        // closure type each time; make a sibling object and
+                        // take ITS type instead.
+                        code = fmt::format("auto similar_lambda = {}; "
+                                           "(*reinterpret_cast<decltype(similar_lambda)*>(0x{:x}))();",
+                                           expr, (uintptr_t)ptr);
                     }
-                };
+                }
+                if (!code.empty()) {
+                    render_tx_[&slide_src] = nullptr;
+                    slide_src.function = [this, code, &slide_src]() {
+                        cling::Interpreter &interp = *interp_;
+                        cling::Value V;
+                        cling::Transaction *&tx = render_tx_[&slide_src];
+                        if (tx)
+                            interp.reevaluate(tx, nullptr);
+                        else {
+                            CaptureStderr cap([&](const char* buf, size_t szbuf) {
+                                extractMarkers(slide_src, buf, szbuf, -1);
+                            });
+                            auto result = interp.evaluate(code, V, &tx);
+                            if (result != cling::Interpreter::kSuccess) {
+                                // If we failed to evaluate, kill this function to prevent further calls
+                                tx = nullptr;
+                                slide_src.function = nullptr;
+                            }
+                        }
+                    };
+                }
             }
             if (!slide_src.function) {
                 // If we don't have a function, we can still print the value
