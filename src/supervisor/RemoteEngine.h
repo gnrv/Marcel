@@ -66,6 +66,17 @@ public:
     // respawns immediately; also revives a gave-up supervisor.
     void restartWorker() { logic_.requestRestart(now()); }
 
+    // Change the target format. The design resolution is fixed per worker
+    // lifetime (sent in Hello), so this restarts the worker; buffers
+    // re-announce at the new size and imports replace the old textures.
+    void setDesignResolution(uint32_t w, uint32_t h) {
+        if (w == settings_.design_w && h == settings_.design_h)
+            return;
+        settings_.design_w = w;
+        settings_.design_h = h;
+        logic_.requestRestart(now());
+    }
+
     // Bounded tail of the worker's stderr (echoed live to ours as well),
     // with "[worker exited: ...]" lines between generations. Crash panel food.
     const std::string &stderrTail() const { return stderr_tail_; }

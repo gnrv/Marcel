@@ -10,6 +10,7 @@
 #include <EGL/egl.h>
 #include <GL/gl.h>
 
+#include <algorithm>
 #include <cstdio>
 
 namespace {
@@ -190,9 +191,10 @@ SlideRenderer::Result SlideRenderer::render(const std::function<void()> &fn,
                      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                      ImGuiWindowFlags_NoSavedSettings);
     ImGui::PushFont(big_font_);
-    // Mirrors main.cpp: slides are designed for a 1080-high canvas, and
-    // PushScale multiplies onto the DPI scale already baked into the fonts.
-    ImGui::PushScale(static_cast<float>(h_) / 1080.f / dpi_scale_);
+    // Mirrors main.cpp: slides are designed for a canvas whose SHORT side
+    // is 1080 px (equals height for all landscape formats; width for 9:16),
+    // and PushScale multiplies onto the DPI scale baked into the fonts.
+    ImGui::PushScale(static_cast<float>(std::min(w_, h_)) / 1080.f / dpi_scale_);
 
     ImGuiErrorRecoveryState state;
     ImGui::ErrorRecoveryStoreState(&state);

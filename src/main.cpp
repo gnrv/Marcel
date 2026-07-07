@@ -45,12 +45,24 @@
 
 static float f_adjust = 0.0f;
 
+// Presentation target formats (docs/plans/client-server-refactor.md): the
+// worker renders at the fixed design resolution, main downscales into
+// slide_size. All four are first-class; 16:10 is the default.
+struct TargetFormat { const char *name; uint32_t w, h; };
+static constexpr TargetFormat kFormats[] = {
+    { "16:10", 1728, 1080 }, // laptop-native (default)
+    { "4:3",   1440, 1080 }, // iPad / CRT-shader videos
+    { "16:9",  1920, 1080 }, // YouTube
+    { "9:16",  1080, 1920 }, // shorts
+};
+
 struct MyAppSettings {
     std::function<void()> ToggleFullscreen = nullptr;
     GLFWwindow* window = nullptr;
     int window_x = 100, window_y = 100, window_w = 1280, window_h = 720;
     std::string current_folder{ getExecutablePath() + "/../documents/test" };
     bool notebook_mode{ true }; // Start in notebook mode
+    int format{ 0 }; // index into kFormats
 };
 static MyAppSettings g_settings;
 
@@ -107,6 +119,9 @@ static void MySettings_ReadLine(ImGuiContext*, ImGuiSettingsHandler*, void* entr
         settings->notebook_mode = true;
     } else if (strcmp(line, "NotebookMode=0") == 0) {
         settings->notebook_mode = false;
+    } else if (sscanf(line, "Format=%d", &x) == 1) {
+        if (x >= 0 && x < (int)IM_ARRAYSIZE(kFormats))
+            settings->format = x;
     } else {
         std::cerr << "Unknown setting line: " << line << std::endl;
     }
@@ -118,6 +133,7 @@ static void MySettings_WriteAll(ImGuiContext*, ImGuiSettingsHandler*, ImGuiTextB
     out_buf->appendf("Window=%d,%d,%d,%d\n", g_settings.window_x, g_settings.window_y, g_settings.window_w, g_settings.window_h);
     out_buf->appendf("CurrentFolder=%s\n", g_settings.current_folder.c_str());
     out_buf->appendf("NotebookMode=%d\n", g_settings.notebook_mode ? 1 : 0);
+    out_buf->appendf("Format=%d\n", g_settings.format);
 }
 
 static bool nfd_initialized = false;
@@ -214,6 +230,24 @@ if (ImGui::BeginMenu("View")) {
     }
     if (ImGui::MenuItem("Toggle Full Screen", "F11")) {
         ToggleFullscreen();
+    }
+    ImGui::Separator();
+    if (ImGui::BeginMenu("Format")) {
+        for (int i = 0; i < (int)IM_ARRAYSIZE(kFormats); ++i) {
+            char label[64];
+            snprintf(label, sizeof(label), "%s (%ux%u)", kFormats[i].name,
+                     kFormats[i].w, kFormats[i].h);
+            if (ImGui::MenuItem(label, nullptr, g_settings.format == i) &&
+                g_settings.format != i) {
+                g_settings.format = i;
+                ImGui::SaveIniSettingsToDisk(ImGui::GetIO().IniFilename);
+                // Design resolution is fixed per worker lifetime; this
+                // restarts the worker (~1 s) and re-announces textures.
+                if (remote_engine)
+                    remote_engine->setDesignResolution(kFormats[i].w, kFormats[i].h);
+            }
+        }
+        ImGui::EndMenu();
     }
     if (remote_engine) {
         ImGui::Separator();
@@ -349,6 +383,11 @@ int main(int argc, char **argv) {
 
     // Do an initial read of all settings
     ImGui::LoadIniSettingsFromDisk(io.IniFilename);
+
+    // Apply the persisted target format before the worker spawns (lazily,
+    // on the first frame) so the first Hello already carries it.
+    engine.setDesignResolution(kFormats[g_settings.format].w,
+                               kFormats[g_settings.format].h);
 
     ImPlot::CreateContext();
     ImPlot3D::CreateContext();
@@ -536,13 +575,15 @@ int main(int argc, char **argv) {
         // if we want an overlaid scroll bar, we need to draw it ourselves
         // So disable the built in scrollbar completely
         flags |= ImGuiWindowFlags_NoScrollbar;
-        // Let the presentation area contain 10 placeholder slides
-        // of aspect ratio 16:10
-        // Slides are designed for 1080p, 16:10 aspect ratio
+        // Let the presentation area contain 10 placeholder slides in the
+        // presentation's target format (16:10 default; View > Format).
+        // Slides are designed for a canvas whose SHORT side is 1080 px.
         // TODO: Once ImGui::SetScale is better implemented across imgui and the glfw backend, we can
         //       use a fixed slide_size of 1728x1080 and use ImGui::PushScale() to accomplish this.
-        ImVec2 slide_size{ presentation_width, presentation_width*10/16 };
-        float slide_scale = slide_size.y / 1080.f;
+        const TargetFormat &target_format = kFormats[g_settings.format];
+        ImVec2 slide_size{ presentation_width,
+                           presentation_width * target_format.h / target_format.w };
+        float slide_scale = std::min(slide_size.x, slide_size.y) / 1080.f;
         // Watch out, my PushScale implementation multiplies onto the current DPI scale
         // so we need to divide by that here.
         slide_scale /= dpi_scale;
