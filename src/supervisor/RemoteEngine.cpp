@@ -326,6 +326,12 @@ void RemoteEngine::handleFrameDone(ipc::Message &m, double t)
     frame_outstanding_ = false;
     logic_.onFrameDone(t);
 
+    // kCapFenceSync: GPU-wait on the worker's render completion before any
+    // command that samples the dma-buf textures promoted below.
+    int fence = m.takeFd(0);
+    if (fence >= 0)
+        texture_import::waitFence(fence);
+
     ipc::Reader r(m.payload.data(), m.payload.size());
     ipc::FrameDoneMsg done{};
     if (!r.read(done))

@@ -320,8 +320,11 @@ int main(int argc, char **argv) {
         uint32_t caps = ipc::kTransportShm;
         if (!force_shm && texture_import::dmabufAvailable())
             caps |= ipc::kTransportDmabuf;
-        printf("Texture transport caps: %s\n",
-               caps & ipc::kTransportDmabuf ? "dma-buf + shm" : "shm");
+        if ((caps & ipc::kTransportDmabuf) && texture_import::fenceSyncAvailable())
+            caps |= ipc::kCapFenceSync;
+        printf("Texture transport caps: %s%s\n",
+               caps & ipc::kTransportDmabuf ? "dma-buf + shm" : "shm",
+               caps & ipc::kCapFenceSync ? " (fence sync)" : "");
         engine.setTransportCaps(caps);
     }
 

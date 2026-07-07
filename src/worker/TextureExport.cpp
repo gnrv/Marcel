@@ -2,6 +2,7 @@
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <GL/gl.h>
 
 #include <cstdio>
 #include <cstring>
@@ -88,6 +89,49 @@ int exportDmabuf(void *egl_display, void *egl_context, unsigned tex,
         fds[i] = raw_fds[i];
     }
     return num_planes;
+}
+
+namespace {
+
+PFNEGLCREATESYNCKHRPROC p_eglCreateSyncKHR;
+PFNEGLDESTROYSYNCKHRPROC p_eglDestroySyncKHR;
+PFNEGLDUPNATIVEFENCEFDANDROIDPROC p_eglDupNativeFenceFDANDROID;
+
+bool loadFenceFunctions()
+{
+    if (p_eglDupNativeFenceFDANDROID)
+        return true;
+    p_eglCreateSyncKHR = reinterpret_cast<PFNEGLCREATESYNCKHRPROC>(
+        eglGetProcAddress("eglCreateSyncKHR"));
+    p_eglDestroySyncKHR = reinterpret_cast<PFNEGLDESTROYSYNCKHRPROC>(
+        eglGetProcAddress("eglDestroySyncKHR"));
+    p_eglDupNativeFenceFDANDROID = reinterpret_cast<PFNEGLDUPNATIVEFENCEFDANDROIDPROC>(
+        eglGetProcAddress("eglDupNativeFenceFDANDROID"));
+    return p_eglCreateSyncKHR && p_eglDestroySyncKHR && p_eglDupNativeFenceFDANDROID;
+}
+
+} // namespace
+
+bool fenceAvailable(void *egl_display)
+{
+    EGLDisplay dpy = static_cast<EGLDisplay>(egl_display);
+    return dpy != EGL_NO_DISPLAY &&
+           hasExtension(dpy, "EGL_ANDROID_native_fence_sync") && loadFenceFunctions();
+}
+
+int createFenceFd(void *egl_display)
+{
+    EGLDisplay dpy = static_cast<EGLDisplay>(egl_display);
+    if (!p_eglDupNativeFenceFDANDROID)
+        return -1;
+    EGLSyncKHR sync = p_eglCreateSyncKHR(dpy, EGL_SYNC_NATIVE_FENCE_ANDROID, nullptr);
+    if (sync == EGL_NO_SYNC_KHR)
+        return -1;
+    // The dup only yields a valid fd after the fence command reaches the GPU.
+    glFlush();
+    int fd = p_eglDupNativeFenceFDANDROID(dpy, sync);
+    p_eglDestroySyncKHR(dpy, sync);
+    return fd; // EGL_NO_NATIVE_FENCE_FD_ANDROID == -1
 }
 
 } // namespace texture_export

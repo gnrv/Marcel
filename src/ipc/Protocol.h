@@ -37,6 +37,11 @@ constexpr uint32_t kClipboardMax = 128 * 1024;
 // Transport capability bits (HelloMsg/HelloAckMsg).
 constexpr uint32_t kTransportDmabuf = 1u << 0;
 constexpr uint32_t kTransportShm    = 1u << 1;
+// Feature bit in the same caps word: main can GPU-wait on native-fence FDs
+// (EGL_ANDROID_native_fence_sync). When set and the worker can export
+// fences, FrameDone carries one fence FD instead of the worker stalling in
+// glFinish. dma-buf transport only; shm copies are synchronous anyway.
+constexpr uint32_t kCapFenceSync    = 1u << 2;
 
 // DRM_FORMAT_ABGR8888 ('AB24' little-endian): bytes R,G,B,A — matches what
 // glReadPixels(GL_RGBA, GL_UNSIGNED_BYTE) writes and glTexSubImage2D reads.
@@ -127,7 +132,10 @@ struct SlideFrameResult {
 struct FrameDoneMsg {
     uint64_t frame_id;
     uint32_t num_slides;
-    /* tail: SlideFrameResult[num_slides] (each with its own text tail) */
+    /* tail: SlideFrameResult[num_slides] (each with its own text tail).
+       May carry one native-fence FD via SCM_RIGHTS (kCapFenceSync): the
+       GPU work for every slide rendered this frame has completed when it
+       signals. Absent when nothing rendered or the fallback glFinish ran. */
 };
 
 // Clipboard proxy: the worker has no window system, so slides read from a

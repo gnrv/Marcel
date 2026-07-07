@@ -8,6 +8,8 @@
 #include <cstring>
 #include <vector>
 
+#include <unistd.h>
+
 namespace texture_import {
 
 namespace {
@@ -114,6 +116,50 @@ unsigned importDmabuf(const ipc::TextureAnnounceMsg &ann,
         return 0;
     }
     return tex;
+}
+
+namespace {
+
+PFNEGLCREATESYNCKHRPROC p_eglCreateSyncKHR;
+PFNEGLDESTROYSYNCKHRPROC p_eglDestroySyncKHR;
+PFNEGLWAITSYNCKHRPROC p_eglWaitSyncKHR;
+
+} // namespace
+
+bool fenceSyncAvailable()
+{
+    EGLDisplay dpy = eglGetCurrentDisplay();
+    if (dpy == EGL_NO_DISPLAY)
+        return false;
+    if (!hasEglExtension(dpy, "EGL_ANDROID_native_fence_sync") ||
+        !hasEglExtension(dpy, "EGL_KHR_wait_sync"))
+        return false;
+    p_eglCreateSyncKHR = reinterpret_cast<PFNEGLCREATESYNCKHRPROC>(
+        eglGetProcAddress("eglCreateSyncKHR"));
+    p_eglDestroySyncKHR = reinterpret_cast<PFNEGLDESTROYSYNCKHRPROC>(
+        eglGetProcAddress("eglDestroySyncKHR"));
+    p_eglWaitSyncKHR = reinterpret_cast<PFNEGLWAITSYNCKHRPROC>(
+        eglGetProcAddress("eglWaitSyncKHR"));
+    return p_eglCreateSyncKHR && p_eglDestroySyncKHR && p_eglWaitSyncKHR;
+}
+
+void waitFence(int fd)
+{
+    EGLDisplay dpy = eglGetCurrentDisplay();
+    if (fd < 0)
+        return;
+    if (dpy == EGL_NO_DISPLAY || !p_eglWaitSyncKHR) {
+        close(fd); // defensive: the worker only sends after we advertised
+        return;
+    }
+    const EGLint attribs[] = {EGL_SYNC_NATIVE_FENCE_FD_ANDROID, fd, EGL_NONE};
+    EGLSyncKHR sync = p_eglCreateSyncKHR(dpy, EGL_SYNC_NATIVE_FENCE_ANDROID, attribs);
+    if (sync == EGL_NO_SYNC_KHR) {
+        close(fd); // creation failed, so EGL did not adopt the fd
+        return;
+    }
+    p_eglWaitSyncKHR(dpy, sync, 0);
+    p_eglDestroySyncKHR(dpy, sync);
 }
 
 } // namespace texture_import

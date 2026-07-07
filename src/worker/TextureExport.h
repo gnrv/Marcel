@@ -21,4 +21,12 @@ bool dmabufAvailable(void *egl_display);
 int exportDmabuf(void *egl_display, void *egl_context, unsigned tex,
                  ipc::TextureAnnounceMsg &ann, int fds[ipc::kMaxFds]);
 
+// EGL_ANDROID_native_fence_sync available on this display?
+bool fenceAvailable(void *egl_display);
+
+// Inserts a fence after all GL commands issued so far (flushing them) and
+// returns its FD for the importer to wait on, or -1 on failure — the
+// caller must then fall back to glFinish. Caller owns the fd.
+int createFenceFd(void *egl_display);
+
 } // namespace texture_export

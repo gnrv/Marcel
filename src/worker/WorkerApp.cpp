@@ -265,6 +265,7 @@ void WorkerApp::handleFrameBegin(WorkerEvent &ev)
     done.append(done_msg);
 
     std::vector<ipc::InputEvent> slide_events;
+    bool dmabuf_rendered = false;
     for (const ipc::SlideInput &input : ev.inputs) {
         ipc::SlideFrameResult r{};
         r.slide = input.slide;
@@ -296,7 +297,7 @@ void WorkerApp::handleFrameBegin(WorkerEvent &ev)
                     ev.frame.delta_time, input, slide_events,
                     dmabuf ? static_cast<uint32_t>(b) : 0);
                 if (dmabuf)
-                    glFinish(); // implicit dma-buf sync; fence FDs in step 6
+                    dmabuf_rendered = true; // synced once, after the loop
                 else
                     st.renderer->readPixels(0, st.buffers[b].map());
                 r.buffer_index = static_cast<uint32_t>(b);
@@ -312,5 +313,19 @@ void WorkerApp::handleFrameBegin(WorkerEvent &ev)
         done.append(r);
         done.appendString(exception);
     }
-    send_(ipc::MsgType::FrameDone, done.data(), done.size(), nullptr, 0);
+
+    // Exported buffers must not be sampled before our GL work completes.
+    // Preferred: ship a native-fence FD with FrameDone for main to GPU-wait
+    // on (needs both sides capable). Fallback: stall here in glFinish.
+    int fence_fd = -1;
+    if (dmabuf_rendered) {
+        if (hello_.transport_caps & ipc::kCapFenceSync)
+            fence_fd = texture_export::createFenceFd(gl_.display());
+        if (fence_fd < 0)
+            glFinish();
+    }
+    send_(ipc::MsgType::FrameDone, done.data(), done.size(),
+          fence_fd >= 0 ? &fence_fd : nullptr, fence_fd >= 0 ? 1u : 0u);
+    if (fence_fd >= 0)
+        close(fence_fd); // the send dup'ed it into the socket
 }

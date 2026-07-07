@@ -20,4 +20,14 @@ bool dmabufAvailable();
 unsigned importDmabuf(const ipc::TextureAnnounceMsg &ann,
                       const int *fds, uint32_t num_fds);
 
+// Can this context GPU-wait on native-fence FDs? (EGL_ANDROID_native_fence_sync
+// + EGL_KHR_wait_sync on the current display.) Call once after context
+// creation; advertised to the worker as ipc::kCapFenceSync.
+bool fenceSyncAvailable();
+
+// Queue a server-side wait for the fence carried by a FrameDone: subsequent
+// GL commands (sampling the imported textures) execute only after the
+// worker's rendering completed. Never blocks the CPU. Takes ownership of fd.
+void waitFence(int fd);
+
 } // namespace texture_import
