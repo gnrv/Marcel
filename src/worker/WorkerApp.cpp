@@ -53,8 +53,30 @@ bool WorkerApp::initGL()
     io.ConfigErrorRecoveryEnableAssert = false;
     ImGui::StyleColorsDark();
     ImGui::GetStyle().ScaleAllSizes(hello_.dpi_scale);
+    InstallSlideClipboard(this);
     ImGui_ImplOpenGL3_Init("#version 130");
     return true;
+}
+
+const char *WorkerApp::get()
+{
+    // This paste uses whatever main pushed last; the request refreshes the
+    // cache for the next one (a synchronous round trip would stall the
+    // render and trip the frame watchdog if main is busy).
+    send_(ipc::MsgType::ClipboardRequest, nullptr, 0, nullptr, 0);
+    return clipboard_.c_str();
+}
+
+void WorkerApp::set(const char *text)
+{
+    clipboard_ = text ? text : "";
+    if (clipboard_.size() > ipc::kClipboardMax)
+        clipboard_.resize(ipc::kClipboardMax);
+    ipc::ClipboardDataMsg msg{static_cast<uint32_t>(clipboard_.size())};
+    ipc::Writer w;
+    w.append(msg);
+    w.appendString(clipboard_);
+    send_(ipc::MsgType::ClipboardData, w.data(), w.size(), nullptr, 0);
 }
 
 uint32_t WorkerApp::transportCaps() const
@@ -106,6 +128,9 @@ void WorkerApp::run()
             break;
         case WorkerEvent::Type::BufferRelease:
             state(ev.slide).ring.release(ev.buffer_index);
+            break;
+        case WorkerEvent::Type::ClipboardData:
+            clipboard_ = std::move(ev.text);
             break;
         case WorkerEvent::Type::Shutdown:
             return;
@@ -252,7 +277,8 @@ void WorkerApp::handleFrameBegin(WorkerEvent &ev)
             if (!st.renderer)
                 st.renderer = std::make_unique<SlideRenderer>(
                     hello_.design_w, hello_.design_h, hello_.dpi_scale, atlas_,
-                    big_font_, dmabuf ? ipc::kBuffersPerSlide : 1);
+                    big_font_, dmabuf ? ipc::kBuffersPerSlide : 1,
+                    static_cast<SlideClipboard *>(this));
             int b = st.renderer->valid() ? st.ring.acquire() : ipc::BufferRing::kInvalid;
             if (b != ipc::BufferRing::kInvalid &&
                 !announceBuffer(st, input.slide, static_cast<uint32_t>(b))) {

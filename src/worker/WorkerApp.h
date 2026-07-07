@@ -9,6 +9,7 @@
 #include "ipc/Protocol.h"
 #include "worker/HeadlessGL.h"
 #include "worker/ShmBuffer.h"
+#include "worker/SlideClipboard.h"
 
 #include <array>
 #include <condition_variable>
@@ -29,13 +30,13 @@ struct ImFontAtlas;
 struct ImGuiContext;
 
 struct WorkerEvent {
-    enum class Type { SetSource, FrameBegin, BufferRelease, Shutdown };
+    enum class Type { SetSource, FrameBegin, BufferRelease, ClipboardData, Shutdown };
     Type type;
     // SetSource
     int32_t slide = 0;
     uint64_t request_id = 0;
     bool is_cuda = false;
-    std::string text;
+    std::string text; // also ClipboardData payload
     // FrameBegin
     ipc::FrameBeginMsg frame{};
     std::vector<ipc::SlideInput> inputs;
@@ -44,7 +45,7 @@ struct WorkerEvent {
     uint32_t buffer_index = 0;
 };
 
-class WorkerApp {
+class WorkerApp : SlideClipboard {
 public:
     // send must be thread-safe (the IO thread also sends Pongs through it).
     using SendFn = std::function<bool(ipc::MsgType, const void *, uint32_t,
@@ -80,6 +81,12 @@ private:
         std::array<bool, ipc::kBuffersPerSlide> announced{};    // dmabuf only
     };
 
+    // SlideClipboard: reads serve the cache main pushed (and fire a
+    // ClipboardRequest so a stale cache heals for the next paste); writes
+    // forward to main. Work thread only, like clipboard_.
+    const char *get() override;
+    void set(const char *text) override;
+
     void handleSetSource(WorkerEvent &ev);
     void handleFrameBegin(WorkerEvent &ev);
     // First use of a ring buffer: create/export it and send TextureAnnounce
@@ -98,6 +105,7 @@ private:
     ImGuiContext *compile_ctx_ = nullptr; // current during interp.process()
     std::filesystem::path scratch_;
     std::map<int32_t, SlideState> slides_;
+    std::string clipboard_; // last known main-process clipboard text
 
     std::mutex queue_mx_;
     std::condition_variable queue_cv_;

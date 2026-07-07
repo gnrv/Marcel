@@ -99,6 +99,15 @@ void ioThread(WorkerApp *app)
             }
             break;
         }
+        case ipc::MsgType::ClipboardData: {
+            ipc::Reader r2(m.payload.data(), m.payload.size());
+            ipc::ClipboardDataMsg msg{};
+            WorkerEvent ev;
+            ev.type = WorkerEvent::Type::ClipboardData;
+            if (r2.read(msg) && r2.readString(ev.text, msg.text_len))
+                app->post(std::move(ev));
+            break;
+        }
         case ipc::MsgType::Shutdown: {
             WorkerEvent ev;
             ev.type = WorkerEvent::Type::Shutdown;

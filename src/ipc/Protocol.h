@@ -30,6 +30,10 @@ constexpr uint32_t kBuffersPerSlide = 3;
 constexpr uint32_t kMaxPayloadSize = 192 * 1024;
 constexpr uint32_t kMaxFds = 4;  // max dma-buf planes per TextureAnnounce
 
+// Clipboard text cap: comfortably under kMaxPayloadSize; anything larger
+// gets truncated by the sender (either side).
+constexpr uint32_t kClipboardMax = 128 * 1024;
+
 // Transport capability bits (HelloMsg/HelloAckMsg).
 constexpr uint32_t kTransportDmabuf = 1u << 0;
 constexpr uint32_t kTransportShm    = 1u << 1;
@@ -39,7 +43,7 @@ constexpr uint32_t kTransportShm    = 1u << 1;
 constexpr uint32_t kFourccAbgr8888 = 0x34324241;
 
 enum class MsgType : uint32_t {
-    // main -> worker
+    // main -> worker (ClipboardData travels both directions)
     Hello = 1, SetSource, FrameBegin, BufferRelease, ClipboardData, Ping, Shutdown,
     // worker -> main
     HelloAck = 100, CompileBusy, CompileResult, TextureAnnounce,
@@ -126,6 +130,15 @@ struct FrameDoneMsg {
     /* tail: SlideFrameResult[num_slides] (each with its own text tail) */
 };
 
+// Clipboard proxy: the worker has no window system, so slides read from a
+// worker-local cache and writes are forwarded. Main sends ClipboardData
+// (its current clipboard) when a slide gains focus and in answer to
+// ClipboardRequest; the worker sends ClipboardData back when slide code
+// copies text. ClipboardRequest (empty payload) is fired by the worker on
+// every paste — that paste uses the cache as-is, and the reply refreshes it
+// for the next one.
+struct ClipboardDataMsg { uint32_t text_len; /* tail: char text[text_len] */ };
+
 struct PingMsg { uint64_t token; };
 struct PongMsg { uint64_t token; };
 
@@ -137,5 +150,6 @@ static_assert(std::is_trivially_copyable_v<FrameBeginMsg>);
 static_assert(std::is_trivially_copyable_v<CompileResultMsg>);
 static_assert(std::is_trivially_copyable_v<TextureAnnounceMsg>);
 static_assert(std::is_trivially_copyable_v<FrameDoneMsg>);
+static_assert(std::is_trivially_copyable_v<ClipboardDataMsg>);
 
 } // namespace ipc

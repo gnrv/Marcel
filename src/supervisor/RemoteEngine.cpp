@@ -5,6 +5,8 @@
 #include "ipc/Serialize.h"
 #include "supervisor/TextureImport.h"
 
+#include "imgui.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -243,6 +245,19 @@ void RemoteEngine::handleMessage(ipc::Message &m, double t)
     case ipc::MsgType::LogText:
         fwrite(m.payload.data(), 1, m.payload.size(), stderr);
         break;
+    case ipc::MsgType::ClipboardRequest:
+        pushClipboard();
+        break;
+    case ipc::MsgType::ClipboardData: {
+        // Slide code copied text; publish it as the real clipboard.
+        ipc::Reader r(m.payload.data(), m.payload.size());
+        ipc::ClipboardDataMsg msg{};
+        std::string text;
+        if (r.read(msg) && r.readString(text, msg.text_len) &&
+            ImGui::GetCurrentContext())
+            ImGui::SetClipboardText(text.c_str());
+        break;
+    }
     default:
         break;
     }
@@ -401,8 +416,37 @@ void RemoteEngine::addInputEvent(const ipc::InputEvent &ev)
     frame_events_.push_back(ev);
 }
 
+void RemoteEngine::pushClipboard()
+{
+    if (!proc_.running() || !ImGui::GetCurrentContext())
+        return;
+    const char *txt = ImGui::GetClipboardText();
+    std::string text = txt ? txt : "";
+    if (text.size() > ipc::kClipboardMax)
+        text.resize(ipc::kClipboardMax);
+    ipc::ClipboardDataMsg msg{static_cast<uint32_t>(text.size())};
+    ipc::Writer w;
+    w.append(msg);
+    w.appendString(text);
+    proc_.channel().send(ipc::MsgType::ClipboardData, w.data(), w.size());
+}
+
 void RemoteEngine::endFrame(double time, float delta_time)
 {
+    // Clipboard follows focus: when a slide gains focus, push main's
+    // clipboard so a paste into a worker-side InputText finds fresh text.
+    int focused = kNoFocusedSlide;
+    for (const auto &[slide, in] : frame_inputs_)
+        if (in.focused) {
+            focused = slide;
+            break;
+        }
+    if (focused != clipboard_focus_) {
+        clipboard_focus_ = focused;
+        if (focused != kNoFocusedSlide)
+            pushClipboard();
+    }
+
     if (!proc_.running() || !logic_.running() || frame_outstanding_)
         return; // coalesce: inputs are rebuilt next frame, events accumulate
     if (frame_inputs_.empty()) {

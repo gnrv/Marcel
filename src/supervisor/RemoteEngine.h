@@ -112,6 +112,10 @@ private:
     void handleMessage(ipc::Message &m, double now);
     void handleTextureAnnounce(ipc::Message &m);
     void handleFrameDone(ipc::Message &m, double now);
+    // Sends main's current clipboard as ClipboardData (focus gain, or the
+    // worker asked). X11 clipboard reads are a server round trip, so this
+    // is event-driven, never polled.
+    void pushClipboard();
     void submitIfNeeded(SourceFile &sf, double now);
     void applyPoison(int slide);
     double now() const;
@@ -136,6 +140,8 @@ private:
     uint32_t transport_caps_ = ipc::kTransportShm;
     bool frame_outstanding_ = false;
     uint64_t next_frame_id_ = 1;
+    static constexpr int kNoFocusedSlide = -1000;
+    int clipboard_focus_ = kNoFocusedSlide; // slide whose focus we last saw
 
     std::string stderr_tail_; // bounded ring of worker stderr
 };

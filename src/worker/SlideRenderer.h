@@ -9,6 +9,7 @@
 // mirroring the slide child in main.cpp.
 
 #include "ipc/Protocol.h"
+#include "worker/SlideClipboard.h"
 
 #include <cstdint>
 #include <functional>
@@ -37,7 +38,8 @@ public:
     // buffer for dma-buf (each target texture is exported and rendered to
     // directly).
     SlideRenderer(uint32_t width, uint32_t height, float dpi_scale,
-                  ImFontAtlas *atlas, ImFont *big_font, uint32_t num_targets = 1);
+                  ImFontAtlas *atlas, ImFont *big_font, uint32_t num_targets = 1,
+                  SlideClipboard *clipboard = nullptr);
     ~SlideRenderer();
     SlideRenderer(const SlideRenderer &) = delete;
     SlideRenderer &operator=(const SlideRenderer &) = delete;

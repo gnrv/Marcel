@@ -49,9 +49,23 @@ bool loadFboFunctions()
 
 } // namespace
 
+void InstallSlideClipboard(SlideClipboard *cb)
+{
+    ImGuiPlatformIO &pio = ImGui::GetPlatformIO();
+    pio.Platform_ClipboardUserData = cb;
+    pio.Platform_GetClipboardTextFn = [](ImGuiContext *) -> const char * {
+        return static_cast<SlideClipboard *>(
+                   ImGui::GetPlatformIO().Platform_ClipboardUserData)->get();
+    };
+    pio.Platform_SetClipboardTextFn = [](ImGuiContext *, const char *text) {
+        static_cast<SlideClipboard *>(
+            ImGui::GetPlatformIO().Platform_ClipboardUserData)->set(text);
+    };
+}
+
 SlideRenderer::SlideRenderer(uint32_t width, uint32_t height, float dpi_scale,
                              ImFontAtlas *atlas, ImFont *big_font,
-                             uint32_t num_targets)
+                             uint32_t num_targets, SlideClipboard *clipboard)
     : w_(width), h_(height), dpi_scale_(dpi_scale), big_font_(big_font)
 {
     if (!loadFboFunctions()) {
@@ -68,6 +82,8 @@ SlideRenderer::SlideRenderer(uint32_t width, uint32_t height, float dpi_scale,
     io.ConfigErrorRecoveryEnableAssert = false;
     ImGui::StyleColorsDark();
     ImGui::GetStyle().ScaleAllSizes(dpi_scale_); // mirrors main.cpp
+    if (clipboard)
+        InstallSlideClipboard(clipboard);
     plot_ = ImPlot::CreateContext();
     plot3d_ = ImPlot3D::CreateContext();
     ImGui_ImplOpenGL3_Init("#version 130");
