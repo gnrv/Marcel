@@ -10,8 +10,9 @@ This repo never merges. History on `master` must be a straight line:
   after the rebase.
 - Land by fast-forwarding `master` to the branch tip — never
   `git merge` (no `--no-ff`, no merge commits):
-  `git push . topic/<name>:master` (or `git checkout master &&
-  git merge --ff-only topic/<name>`), then `git push origin master`.
+  `git push . topic/<name>:master` (or
+  `git checkout master && git merge --ff-only topic/<name>`), then
+  `git push origin master`.
 
 ## Other git rules
 
