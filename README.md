@@ -9,7 +9,7 @@ Marcel is a C++ project that aims to combine all these things:
 
 This project is named after [Marcel Riesz](https://en.wikipedia.org/wiki/Marcel_Riesz), who came to Lund University as professor of Mathematics 1926, one hundred years ago at the time of writing.
 
-The project name is pronounced roughly "'mortsel", which is the Hungarian pronunciation of "Marcel".
+The project name is pronounced roughly ['mortsel], which is the Hungarian pronunciation of "Marcel".
 
 ## Build
 
