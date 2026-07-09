@@ -173,6 +173,11 @@ if(USE_CUDA)
 endif()
 add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_worker)
 
+# Headless compile+render+screenshot driver for slide development and CI.
+# Links marcel_ipc only — shm frames are plain memory, so no GL/Cling here.
+add_executable(${PROJECT_NAME}_snap src/tools/snap_main.cpp)
+target_link_libraries(${PROJECT_NAME}_snap PRIVATE ${PROJECT_NAME}_ipc)
+
 # Copy the data (such as fonts) in build directory
 add_custom_command(TARGET ${PROJECT_NAME} PRE_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
