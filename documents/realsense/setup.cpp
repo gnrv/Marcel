@@ -40,8 +40,10 @@ static bool rs_setup()
             rs_pipe.start(rs_cfg);
             rs_have_source = true;
         } else if (const char *bag = getenv("MARCEL_RS_BAG")) {
-            // Recorded in realsense-viewer; must contain depth AND color. Use
-            // an absolute path — the worker's cwd is its executable directory.
+            // Recorded in realsense-viewer; must contain depth AND color.
+            // Both the classic ROS1 .bag and the rosbag2 .db3 that
+            // realsense-viewer 2.58 writes load fine. Use an absolute path —
+            // the worker's cwd is its executable directory.
             rs_cfg.enable_device_from_file(bag);
             rs_pipe.start(rs_cfg);
             rs_have_source = true;
