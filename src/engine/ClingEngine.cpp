@@ -255,19 +255,22 @@ void ClingEngine::compileSetup(SourceFile &setup)
         CaptureStderr cap([&](const char* buf, size_t szbuf) {
             extractMarkers(setup, buf, szbuf);
         });
-        cling::Value V;
         interp.getOptions().CompilerOpts.CUDAHost = setup.is_cuda;
-        auto result = interp.process(setup.text(), &V, nullptr, true /* disableValuePrinting */);
+        // Setup is compiled at GLOBAL scope via declare(), not process().
+        // process() wraps its argument in a function body, which forces any
+        // #include in setup.cpp into function scope — fatal for headers that
+        // open `extern "C"` / namespace blocks (e.g. librealsense2/rs.hpp).
+        // declare() is the same path loadHeader() uses, so setup.cpp can pull
+        // in libraries and define globals/typedefs that every slide then sees
+        // (slides stay wrapped, so they must not #include). Global-variable
+        // initializers in setup run here, which is how setup does one-time
+        // work (e.g. starting a camera pipeline).
+        auto result = interp.declare(setup.text());
         setup.compiled = true;
         setup.syntax_error = result != cling::Interpreter::kSuccess;
 
         setup.value.clear();
         setup.function = nullptr;
-        if (V.isValid()) {
-            llvm::raw_string_ostream os(setup.value);
-            V.print(os);
-            os.flush();
-        }
     }
 }
 
