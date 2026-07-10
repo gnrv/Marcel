@@ -482,7 +482,7 @@ void RemoteEngine::endFrame(double time, float delta_time)
     }
 }
 
-void RemoteEngine::submitIfNeeded(SourceFile &sf, double)
+void RemoteEngine::submitIfNeeded(SourceFile &sf, double t)
 {
     int idx = slideIndexOf(sf);
     known_[idx] = &sf;
@@ -509,6 +509,9 @@ void RemoteEngine::submitIfNeeded(SourceFile &sf, double)
     if (proc_.channel().send(ipc::MsgType::SetSource, w.data(), w.size())) {
         sf.compile_request_id = msg.request_id;
         sf.compile_in_flight = true;
+        // Suppresses the frame watchdog until the CompileResult: the queued
+        // frame legitimately waits behind this compile in the worker.
+        logic_.onCompileSubmitted(t);
     }
 }
 

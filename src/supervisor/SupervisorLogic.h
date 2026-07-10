@@ -8,8 +8,13 @@
 // Liveness policy (docs/plans/client-server-refactor.md, "Watchdog"):
 //  - Ping every ping_interval; no Pong within pong_timeout -> Kill.
 //  - A FrameBegin unanswered for frame_timeout -> Kill, but suppressed while
-//    a compile is busy (compiles legitimately take seconds); a compile busy
-//    longer than compile_timeout -> Kill.
+//    compiles are in flight — busy OR merely submitted: the worker services
+//    its queue in order, so a queued frame legitimately waits behind engine
+//    init and every queued SetSource (a heavy setup compile once made this
+//    window seconds wide and killed the worker in a loop). Each
+//    CompileResult restarts the frame clock. A compile busy longer than
+//    compile_timeout -> Kill; a submitted compile with no CompileBusy /
+//    CompileResult for compile_timeout (work thread wedged) -> Kill.
 //  - Respawn after death with backoff 0/1/2/4/8/10 s (doubling, capped at
 //    backoff_max); a stable run of >= crash_storm_window resets the backoff.
 //  - More than crash_storm_count crashes within crash_storm_window -> give
@@ -56,6 +61,7 @@ public:
     void onPong(double now);
     void onFrameBeginSent(double now);
     void onFrameDone(double now);
+    void onCompileSubmitted(double now); // SetSource sent to the worker
     void onCompileBusy(int slide, double now);
     void onCompileResult(int slide, double now);
 
@@ -106,6 +112,12 @@ private:
     bool compile_busy_ = false;
     int busy_slide_ = kNoSlide;
     double compile_since_ = 0.0;
+
+    // SetSources sent but not yet answered by a CompileResult. While any are
+    // pending the frame watchdog is suppressed (the frame sits behind them
+    // in the worker's queue); compile_wait_since_ bounds the wait instead.
+    int compiles_pending_ = 0;
+    double compile_wait_since_ = 0.0;
 
     int poisoned_slide_ = kNoSlide;
 };

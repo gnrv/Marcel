@@ -34,6 +34,10 @@ class SupervisorLogicTest : public CppUnit::TestFixture {
     CPPUNIT_TEST(testCompileBusySuppressesFrameTimeout);
     CPPUNIT_TEST(testCompileTimeoutKills);
     CPPUNIT_TEST(testCompileResultRestoresFrameWatchdog);
+    CPPUNIT_TEST(testSubmittedCompileSuppressesFrameTimeout);
+    CPPUNIT_TEST(testCompileQueueGapSuppressed);
+    CPPUNIT_TEST(testSubmittedCompileNeverBusyKills);
+    CPPUNIT_TEST(testWorkerExitClearsPendingCompiles);
     CPPUNIT_TEST(testPoisonedSlideAtDeath);
     CPPUNIT_TEST(testNoPoisonWithoutBusyCompile);
     CPPUNIT_TEST(testManualRestartWhileRunning);
@@ -205,10 +209,81 @@ public:
         s.onFrameBeginSent(1.0);
         s.onCompileBusy(3, 1.1);
         s.onCompileResult(3, 2.0);
-        // Suppression lifted; the outstanding frame is now overdue from its
-        // send time (grace measured from compile end, not frame send, would
-        // also be acceptable — this pins the simple rule we chose).
+        // Suppression lifted, but the compile result restarts the frame
+        // clock: the worker services its queue in order, so the outstanding
+        // frame only became serviceable when the compile finished.
+        CPPUNIT_ASSERT(s.update(2.9) == Action::None);
         CPPUNIT_ASSERT(s.update(3.1) == Action::Kill);
+    }
+
+    // A fresh worker services engine init + every queued SetSource before
+    // the first FrameBegin. Between submission and the worker's CompileBusy
+    // (which only arrives once the work thread dequeues the compile) the
+    // frame watchdog must stay quiet — this window killed the realsense deck
+    // in a loop (2026-07): setup's rs.hpp compile queued a FrameBegin for
+    // seconds while compile_busy_ was still false.
+    void testSubmittedCompileSuppressesFrameTimeout()
+    {
+        SupervisorLogic s;
+        s.start(0.0);
+        spawnAndRun(s, 0.0);
+        s.onCompileSubmitted(0.05);      // SetSource(-1) sent
+        s.onFrameBeginSent(0.06);        // slide already visible in the UI
+        CPPUNIT_ASSERT(s.update(2.0) == Action::None); // engine still initializing
+        s.onCompileBusy(-1, 2.1);
+        CPPUNIT_ASSERT(s.update(5.0) == Action::None); // heavy compile
+        s.onCompileResult(-1, 6.0);
+        CPPUNIT_ASSERT(s.update(6.9) == Action::None); // fresh frame window
+        CPPUNIT_ASSERT(s.update(7.1) == Action::Kill); // still no FrameDone
+    }
+
+    // Gap between CompileResult(n) and CompileBusy(n+1): the next compile is
+    // already submitted, so an outstanding frame (sent long ago, queued
+    // behind the whole chain) must not be judged inside the gap.
+    void testCompileQueueGapSuppressed()
+    {
+        SupervisorLogic s;
+        s.start(0.0);
+        spawnAndRun(s, 0.0);
+        s.onCompileSubmitted(0.0);       // setup
+        s.onCompileSubmitted(0.0);       // slide0
+        s.onFrameBeginSent(0.1);
+        s.onCompileBusy(-1, 0.5);
+        s.onCompileResult(-1, 4.0);      // rs.hpp took seconds
+        CPPUNIT_ASSERT(s.update(4.05) == Action::None); // busy(0) not seen yet
+        s.onCompileBusy(0, 4.1);
+        s.onCompileResult(0, 4.5);
+        s.onFrameDone(4.8);
+        CPPUNIT_ASSERT(s.update(10.0) == Action::None);
+    }
+
+    // A submitted compile the worker never starts is still bounded:
+    // compile_timeout applies from submission, not only from CompileBusy.
+    void testSubmittedCompileNeverBusyKills()
+    {
+        SupervisorLogic s;
+        s.start(0.0);
+        spawnAndRun(s, 0.0);
+        s.onCompileSubmitted(1.0);
+        CPPUNIT_ASSERT(s.update(30.9) == Action::None);
+        CPPUNIT_ASSERT(s.update(31.1) == Action::Kill);
+    }
+
+    // Pending compiles die with the worker: the old generation's submissions
+    // must not suppress the frame watchdog after a respawn.
+    void testWorkerExitClearsPendingCompiles()
+    {
+        SupervisorLogic s;
+        s.start(0.0);
+        spawnAndRun(s, 0.0);
+        s.onCompileSubmitted(0.5);
+        s.onWorkerExit(1.0);
+        CPPUNIT_ASSERT(s.update(1.0) == Action::Spawn);
+        s.onSpawned(1.0);
+        s.onHandshake(1.0);
+        s.onFrameBeginSent(1.1);
+        CPPUNIT_ASSERT(s.update(2.0) == Action::None);
+        CPPUNIT_ASSERT(s.update(2.2) == Action::Kill);
     }
 
     void testPoisonedSlideAtDeath()

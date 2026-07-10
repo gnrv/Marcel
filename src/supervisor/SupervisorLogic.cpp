@@ -25,6 +25,7 @@ void SupervisorLogic::onSpawned(double now)
     frame_outstanding_ = false;
     compile_busy_ = false;
     busy_slide_ = kNoSlide;
+    compiles_pending_ = 0;
 }
 
 void SupervisorLogic::onHandshake(double)
@@ -46,6 +47,7 @@ void SupervisorLogic::onWorkerExit(double now)
         poisoned_slide_ = busy_slide_;
     compile_busy_ = false;
     busy_slide_ = kNoSlide;
+    compiles_pending_ = 0; // the queue died with the worker
 
     // A long stable run forgives past instability.
     if (now - spawned_at_ >= cfg_.crash_storm_window) {
@@ -97,11 +99,18 @@ void SupervisorLogic::onFrameDone(double)
     frame_outstanding_ = false;
 }
 
+void SupervisorLogic::onCompileSubmitted(double now)
+{
+    if (compiles_pending_++ == 0)
+        compile_wait_since_ = now;
+}
+
 void SupervisorLogic::onCompileBusy(int slide, double now)
 {
     compile_busy_ = true;
     busy_slide_ = slide;
     compile_since_ = now;
+    compile_wait_since_ = now; // the work thread is servicing the queue
 }
 
 void SupervisorLogic::requestRestart(double now)
@@ -119,12 +128,19 @@ void SupervisorLogic::requestRestart(double now)
     }
 }
 
-void SupervisorLogic::onCompileResult(int slide, double)
+void SupervisorLogic::onCompileResult(int slide, double now)
 {
+    if (compiles_pending_ > 0)
+        --compiles_pending_;
+    compile_wait_since_ = now;
     if (compile_busy_ && slide == busy_slide_) {
         compile_busy_ = false;
         busy_slide_ = kNoSlide;
     }
+    // The worker just proved it is servicing its queue; an outstanding frame
+    // (queued behind the compiles) gets a fresh window from here.
+    if (frame_outstanding_)
+        frame_sent_ = now;
 }
 
 Action SupervisorLogic::update(double now)
@@ -149,10 +165,13 @@ Action SupervisorLogic::update(double now)
         return Action::Kill;
     }
 
+    bool compiling = compile_busy_ || compiles_pending_ > 0;
     bool overdue =
         (ping_outstanding_ && now - ping_sent_ > cfg_.pong_timeout) ||
         (compile_busy_ && now - compile_since_ > cfg_.compile_timeout) ||
-        (frame_outstanding_ && !compile_busy_ && now - frame_sent_ > cfg_.frame_timeout);
+        (!compile_busy_ && compiles_pending_ > 0 &&
+         now - compile_wait_since_ > cfg_.compile_timeout) ||
+        (frame_outstanding_ && !compiling && now - frame_sent_ > cfg_.frame_timeout);
     if (overdue) {
         killing_ = true;
         return Action::Kill;
