@@ -125,7 +125,9 @@ auto update = []() {
             ImPlot3D::SetupAxesLimits(xlo, xhi, ylo, yhi, zlo, zhi,
                                       refit ? ImPlot3DCond_Always
                                             : ImPlot3DCond_Once);
-            ImPlot3D::SetupBoxScale(sx / m, sy / m, sz / m);
+            if (refit) {
+                ImPlot3D::SetupBoxScale(sx / m, sy / m, sz / m);
+            }
             refit = false;
 
             // ImPlot3D::PlotScatter takes one color per call; for per-point
