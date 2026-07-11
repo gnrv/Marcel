@@ -17,6 +17,12 @@
 #include <cstdlib>
 #include <string>
 
+// ImPlot3D internals, for the depth-sorted splatting in slide0. The public
+// API exposes no view direction; the internal header gives the current
+// plot's rotation quaternion and the plot->NDC transform. Only setup can
+// include it (slides are function-wrapped), so the helper lives here.
+#include "implot3d_internal.h"
+
 // Visible to all slides.
 std::string rs_status = "no source";
 bool rs_have_source = false;
@@ -62,3 +68,23 @@ static bool rs_setup()
 // Global initializer: runs rs_setup() once, at global scope, no statement
 // wrapping.
 static bool rs_setup_done = rs_setup();
+
+// View-depth functional for painter-sorting custom draw-list splats.
+// ImGui draw lists have no z-buffer; ImPlot3D depth-sorts only its own
+// items, and anything drawn via GetPlotDrawList() renders in submission
+// order. The screen projection is pix = zoom * (Rotation * ndc(p)), so a
+// point's out-of-screen depth is (Rotation * ndc(p)).z, +z toward the
+// viewer. ndc() is affine in data coordinates, which makes the depth
+// d(p) = c.x*p.x + c.y*p.y + c.z*p.z + const; this returns c, probed from
+// the current plot's transform. Call between BeginPlot/EndPlot after the
+// Setup calls (PlotToNDC locks setup), then emit splats by ascending d
+// (far first).
+static ImPlot3DPoint rs_depth_coeffs()
+{
+    const ImPlot3DQuat &rot = ImPlot3D::GetCurrentPlot()->Rotation;
+    ImPlot3DPoint o = ImPlot3D::PlotToNDC(ImPlot3DPoint(0, 0, 0));
+    return ImPlot3DPoint(
+        (rot * (ImPlot3D::PlotToNDC(ImPlot3DPoint(1, 0, 0)) - o)).z,
+        (rot * (ImPlot3D::PlotToNDC(ImPlot3DPoint(0, 1, 0)) - o)).z,
+        (rot * (ImPlot3D::PlotToNDC(ImPlot3DPoint(0, 0, 1)) - o)).z);
+}

@@ -24,6 +24,8 @@
 // Last-good cloud (kept so a frame with no new data still draws something).
 static std::vector<float> px, py, pz;
 static std::vector<ImU32> pcol;
+static std::vector<float> pd;   // scratch: per-point view depth
+static std::vector<int> porder; // scratch: splat order, far -> near
 static rs2::pointcloud pc;
 static rs2::decimation_filter dec;
 static bool frozen = false;
@@ -134,11 +136,43 @@ auto update = []() {
             // color we project each point ourselves (PlotToPixels locks Setup,
             // so this must come after the Setup calls) and splat a 2px square
             // into the plot's clipped draw list.
+            //
+            // That draw list is ImGui's 2D list — no z-buffer, painter's
+            // algorithm in submission order — so the splats must be emitted
+            // far-to-near or near points disappear behind far ones. The view
+            // depth is the linear functional rs_depth_coeffs() (setup.cpp),
+            // +z toward the viewer; a 256-bucket counting sort is plenty for
+            // 2px splats and skips a full qsort per frame.
+            size_t n = px.size();
+            ImPlot3DPoint dc = rs_depth_coeffs();
+            pd.resize(n);
+            float dlo = 0.0f, dhi = 0.0f;
+            for (size_t i = 0; i < n; ++i) {
+                float d = dc.x * px[i] + dc.y * py[i] + dc.z * pz[i];
+                pd[i] = d;
+                if (i == 0) { dlo = dhi = d; }
+                else { dlo = std::min(dlo, d); dhi = std::max(dhi, d); }
+            }
+            const int kBins = 256;
+            float dscale = dhi > dlo ? kBins / (dhi - dlo) : 0.0f;
+            auto bin = [&](size_t i) {
+                return std::min(kBins - 1, (int)((pd[i] - dlo) * dscale));
+            };
+            int start[kBins + 1] = {0}; // bucket k occupies [start[k], start[k+1])
+            for (size_t i = 0; i < n; ++i)
+                ++start[bin(i) + 1];
+            for (int k = 0; k < kBins; ++k)
+                start[k + 1] += start[k];
+            porder.resize(n);
+            for (size_t i = 0; i < n; ++i)
+                porder[start[bin(i)]++] = (int)i;
+
             ImDrawList *dl = ImPlot3D::GetPlotDrawList();
             ImVec2 p0 = ImPlot3D::GetPlotPos();
             ImVec2 ps = ImPlot3D::GetPlotSize();
             dl->PushClipRect(p0, ImVec2(p0.x + ps.x, p0.y + ps.y), true);
-            for (size_t i = 0; i < px.size(); ++i) {
+            for (size_t k = 0; k < n; ++k) {
+                int i = porder[k];
                 ImVec2 s = ImPlot3D::PlotToPixels(px[i], py[i], pz[i]);
                 dl->AddRectFilled(ImVec2(s.x - 1, s.y - 1),
                                   ImVec2(s.x + 1, s.y + 1), pcol[i]);
